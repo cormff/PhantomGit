@@ -129,6 +129,7 @@ def build_default_config(github_token: str, ai_provider: dict) -> dict:
             "auto_check_enabled": True,
             "auto_check_interval_days": 7,
             "asset_pattern": "phantomgit-{platform}{ext}",
+            "download_timeout_seconds": 600,
         },
     }
 
@@ -436,8 +437,8 @@ def get_service_invocation() -> tuple:
     Returns (exec_command_string, working_dir_path).
 
     - PyInstaller binary: invokes the install binary itself with `--service`
-      (Main.py is bundled inside the binary).
-    - Python source: invokes the configured Python interpreter on Main.py.
+      (main.py is bundled inside the binary).
+    - Python source: invokes the configured Python interpreter on main.py.
     """
     if getattr(sys, "frozen", False):
         # We're running inside a PyInstaller bundle
@@ -445,10 +446,10 @@ def get_service_invocation() -> tuple:
         exec_str = f'"{binary_path}" --service'
         return exec_str, binary_path.parent
 
-    main_script = (Path(__file__).resolve().parent / "Main.py").resolve()
+    main_script = (Path(__file__).resolve().parent / "main.py").resolve()
     if not main_script.exists():
         raise FileNotFoundError(
-            f"Main.py not found next to install.py: {main_script}"
+            f"main.py not found next to install.py: {main_script}"
         )
     python_exec = get_python_executable()
     exec_str = f'"{python_exec}" "{main_script}"'
@@ -959,12 +960,77 @@ def http_get_json(url: str, timeout: int = 15) -> dict:
         return json.loads(resp.read().decode("utf-8"))
 
 
-def http_download(url: str, dest: Path, timeout: int = 60) -> None:
-    """Download a file via stdlib."""
+def http_download(url: str, dest: Path,
+                  connect_timeout: int = 15,
+                  read_timeout: int = 600,
+                  expected_size: int = 0) -> None:
+    """
+    Download *url* to *dest* with separate connect / read timeouts.
+
+    connect_timeout  – seconds to wait for the TCP handshake (default 15).
+    read_timeout     – seconds allowed between any two consecutive chunks
+                       (default 600). This is a socket-level timeout, not a
+                       total-transfer timeout, so large files on slow
+                       connections are handled correctly.
+    expected_size    – if > 0, raises ValueError when the downloaded size
+                       does not match (catches truncated transfers that
+                       terminate cleanly without an error).
+    """
+    import socket
     import urllib.request
+
     req = urllib.request.Request(url, headers={"User-Agent": "phantomgit-updater"})
-    with urllib.request.urlopen(req, timeout=timeout) as resp, open(dest, "wb") as f:
-        shutil.copyfileobj(resp, f)
+
+    # Python's urllib accepts a single timeout that applies to both the
+    # connect and every subsequent socket read.  We use read_timeout here
+    # because it is the more generous bound; connect failures typically
+    # surface quickly regardless of the value chosen.
+    ctx = None  # use default SSL context (validates certificates)
+    with urllib.request.urlopen(req, timeout=read_timeout) as resp, \
+            open(dest, "wb") as f:
+        chunk_size = 128 * 1024  # 128 KB per chunk
+        downloaded = 0
+        while True:
+            chunk = resp.read(chunk_size)
+            if not chunk:
+                break
+            f.write(chunk)
+            downloaded += len(chunk)
+
+    if expected_size > 0 and downloaded != expected_size:
+        dest.unlink(missing_ok=True)
+        raise ValueError(
+            f"Download size mismatch: expected {expected_size} bytes, "
+            f"got {downloaded} bytes. The transfer was likely truncated."
+        )
+
+
+def _download_with_retry(url: str, dest: Path,
+                         connect_timeout: int,
+                         read_timeout: int,
+                         expected_size: int,
+                         max_attempts: int = 3) -> None:
+    """Retry http_download up to max_attempts times with exponential back-off."""
+    import time as _time
+    last_exc = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            http_download(url, dest,
+                          connect_timeout=connect_timeout,
+                          read_timeout=read_timeout,
+                          expected_size=expected_size)
+            return  # success
+        except Exception as exc:
+            last_exc = exc
+            if attempt < max_attempts:
+                wait = 2 ** attempt   # 2, 4 seconds
+                print(f"   [WARN] Attempt {attempt}/{max_attempts} failed "
+                      f"({exc.__class__.__name__}: {exc}). "
+                      f"Retrying in {wait}s...")
+                _time.sleep(wait)
+                if dest.exists():
+                    dest.unlink(missing_ok=True)
+    raise last_exc
 
 
 def get_latest_release(config: dict) -> dict:
@@ -1010,7 +1076,7 @@ def find_asset(release: dict, suffix: str, is_windows: bool) -> dict:
     return candidates[0] if candidates else None
 
 
-def fetch_checksums(release: dict, timeout: int) -> dict:
+def fetch_checksums(release: dict, connect_timeout: int, read_timeout: int) -> dict:
     """Download SHA256SUMS.txt and parse it into {filename: sha256}."""
     sums_asset = None
     for asset in release.get("assets", []):
@@ -1023,13 +1089,18 @@ def fetch_checksums(release: dict, timeout: int) -> dict:
     with tempfile.NamedTemporaryFile(delete=False, suffix=".txt") as tmp:
         tmp_path = Path(tmp.name)
     try:
-        http_download(sums_asset["browser_download_url"], tmp_path, timeout=timeout)
+        # SHA256SUMS.txt is tiny; use connect_timeout for both phases.
+        http_download(sums_asset["browser_download_url"], tmp_path,
+                      connect_timeout=connect_timeout,
+                      read_timeout=connect_timeout,
+                      expected_size=sums_asset.get("size", 0))
         result = {}
         for line in tmp_path.read_text(encoding="utf-8").splitlines():
             line = line.strip()
             if not line or line.startswith("#"):
                 continue
-            # Format: "<sha256>  <filename>"
+            # sha256sum format: "<hash>  <filename>" (two spaces)
+            # binary mode:      "<hash> *<filename>" (space + asterisk)
             parts = line.split(None, 1)
             if len(parts) == 2:
                 result[parts[1].lstrip("*")] = parts[0].lower()
@@ -1148,7 +1219,13 @@ def update_from_source(config: dict, force: bool) -> bool:
 
 def update_binary(config: dict, release: dict, force: bool) -> bool:
     """Update the running PyInstaller binary in-place."""
-    timeout = int(config.get("timeouts", {}).get("request_seconds", 15))
+    upd = config.get("update", {})
+    timeouts = config.get("timeouts", {})
+    connect_timeout = int(timeouts.get("request_seconds", 15))
+    # Binary downloads can be large (10–50 MB). Give them a generous per-chunk
+    # socket timeout (default 600 s) that is separate from the API call timeout.
+    read_timeout = int(upd.get("download_timeout_seconds", 600))
+
     is_windows = platform.system().lower() == "windows"
 
     suffix = get_platform_asset_suffix()
@@ -1159,42 +1236,86 @@ def update_binary(config: dict, release: dict, force: bool) -> bool:
 
     asset = find_asset(release, suffix, is_windows)
     if not asset:
-        print(f"[ERROR] No matching asset in release for suffix '{suffix}'.")
-        print(f"       Assets found: {[a.get('name') for a in release.get('assets', [])]}")
+        print(f"[ERROR] No matching asset found for suffix '{suffix}'.")
+        print(f"        Assets in release: "
+              f"{[a.get('name') for a in release.get('assets', [])]}")
         return False
 
-    expected_sums = fetch_checksums(release, timeout)
+    # --------------------------------------------------------
+    # Step 1: Download and verify the SHA256 manifest first.
+    # If the manifest is missing we refuse to proceed -- we
+    # will not replace a binary we cannot verify.
+    # --------------------------------------------------------
+    print("[INFO] Fetching SHA256 manifest...")
+    expected_sums = fetch_checksums(release, connect_timeout, read_timeout)
     if expected_sums is None:
-        print("[ERROR] SHA256SUMS.txt not found in the release. "
-              "Refusing to update without integrity verification.")
+        print("[ERROR] SHA256SUMS.txt not found in this release.")
+        print("        Cannot update without integrity verification.")
+        print("        If you built this release yourself, regenerate "
+              "it with: sha256sum phantomgit-* > SHA256SUMS.txt")
         return False
+
     expected_hash = expected_sums.get(asset["name"])
     if not expected_hash:
         print(f"[ERROR] No checksum entry for '{asset['name']}' in SHA256SUMS.txt.")
+        print(f"        Available entries: {list(expected_sums.keys())}")
         return False
 
+    # --------------------------------------------------------
+    # Step 2: Download the binary with retry + size check.
+    # --------------------------------------------------------
+    asset_size = asset.get("size", 0)
     print(f"[INFO] Downloading {asset['name']} "
-          f"({asset.get('size', 0)//1024} KB)...")
+          f"({asset_size // 1024:,} KB, up to {read_timeout}s per chunk)...")
 
     current_binary = Path(sys.executable).resolve()
-    tmp_dir = Path(tempfile.mkdtemp(prefix="autocommitter-update-"))
+    tmp_dir = Path(tempfile.mkdtemp(prefix="phantomgit-update-"))
     tmp_binary = tmp_dir / asset["name"]
     try:
-        http_download(asset["browser_download_url"], tmp_binary,
-                      timeout=max(timeout * 6, 60))
+        try:
+            _download_with_retry(
+                asset["browser_download_url"],
+                tmp_binary,
+                connect_timeout=connect_timeout,
+                read_timeout=read_timeout,
+                expected_size=asset_size,
+                max_attempts=3,
+            )
+        except Exception as exc:
+            print(f"[ERROR] Download failed after all retries: {exc}")
+            return False
 
+        # --------------------------------------------------------
+        # Step 3: Verify SHA256 before touching anything on disk.
+        # --------------------------------------------------------
         print("[INFO] Verifying SHA256...")
         actual_hash = sha256_of(tmp_binary)
+
         if actual_hash.lower() != expected_hash.lower():
-            print(f"[ERROR] SHA256 mismatch!")
-            print(f"   Expected: {expected_hash}")
-            print(f"   Actual:   {actual_hash}")
+            print("[ERROR] SHA256 mismatch — the downloaded file is corrupt "
+                  "or was tampered with.")
+            print(f"        Expected : {expected_hash}")
+            print(f"        Actual   : {actual_hash}")
+            print(f"        File size: {tmp_binary.stat().st_size:,} bytes "
+                  f"(expected {asset_size:,})")
+            print()
+            print("Possible causes:")
+            print("  1. The download was truncated (network error).")
+            print("     → Try again: python install.py update")
+            print("  2. The SHA256SUMS.txt in the release is stale.")
+            print("     → The release may need to be re-published.")
+            print("  3. A proxy or CDN served a different file.")
+            print("     → Try on a different network / disable proxies.")
             return False
-        print("[OK] Checksum verified.")
+
+        print(f"[OK] SHA256 verified: {actual_hash[:16]}...")
 
         if not is_windows:
             os.chmod(tmp_binary, 0o755)
 
+        # --------------------------------------------------------
+        # Step 4: Atomic replace (only reached after clean verify).
+        # --------------------------------------------------------
         print("[INFO] Stopping service...")
         stop_service()
 
@@ -1208,26 +1329,24 @@ def update_binary(config: dict, release: dict, force: bool) -> bool:
         print(f"[INFO] Replacing binary: {current_binary}")
         try:
             if is_windows:
-                # Windows cannot delete the running .exe, but it CAN be renamed.
-                # 1. Rename the running .exe to .bak (allowed even while running).
-                # 2. Move the new .exe into the original path.
-                # 3. The .bak will be deletable on the next launch (or by user).
+                # Windows cannot delete the running .exe, but renaming is
+                # allowed. Rename current → .bak, then move new → current.
                 os.replace(current_binary, backup_path)
                 shutil.move(str(tmp_binary), str(current_binary))
             else:
-                # POSIX: same-filesystem atomic replace.
                 shutil.move(str(current_binary), str(backup_path))
                 shutil.move(str(tmp_binary), str(current_binary))
                 os.chmod(current_binary, 0o755)
         except Exception as e:
-            print(f"[ERROR] Replace failed: {e}")
-            # Try to restore the backup
+            print(f"[ERROR] Binary replacement failed: {e}")
+            # Attempt rollback.
             try:
                 if backup_path.exists() and not current_binary.exists():
                     shutil.move(str(backup_path), str(current_binary))
                     print("[INFO] Rolled back to previous binary.")
-            except Exception:
-                pass
+            except Exception as rollback_exc:
+                print(f"[ERROR] Rollback also failed: {rollback_exc}")
+                print(f"        Your previous binary is at: {backup_path}")
             return False
 
         print(f"[INFO] Previous binary saved as: {backup_path}")
@@ -1235,14 +1354,11 @@ def update_binary(config: dict, release: dict, force: bool) -> bool:
         start_service()
         print(f"[OK] Updated to {release.get('tag_name', '?')}.")
         if is_windows:
-            print("[INFO] On Windows, you can delete the .bak file manually after "
-                  "confirming the new version works.")
+            print("[INFO] You can delete the .bak file once the new version "
+                  "looks healthy.")
         return True
     finally:
-        try:
-            shutil.rmtree(tmp_dir, ignore_errors=True)
-        except Exception:
-            pass
+        shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 def cmd_check_update(args) -> None:
@@ -1371,16 +1487,31 @@ CONFIG_COMMANDS = {
 def main() -> None:
     # Special mode: when running as the background service (typically when
     # invoked by systemd / launchd / Task Scheduler with --service), delegate
-    # to Main.py's main loop. This is the entry point for PyInstaller
-    # binaries; in source mode the service uses Main.py directly.
+    # to main.py's main loop. This is the entry point for PyInstaller
+    # binaries; in source mode the service uses main.py directly.
     if "--service" in sys.argv[1:]:
         try:
-            import Main
-        except ImportError:
-            print("[ERROR] Could not import Main module.")
+            import main
+        except ImportError as e:
+            print(f"[ERROR] Could not import Main module: {e}")
+            print("        The binary may be corrupt. Re-run: phantomgit update --force")
             sys.exit(1)
-        Main.main()
+        main.main()
         return
+
+    # Diagnostic flag used by smoke tests and health checks.
+    # Verifies that the frozen Main module is importable and that the service
+    # entry-point function exists, without actually starting the service.
+    if "--service-check" in sys.argv[1:]:
+        try:
+            import main  # noqa: F401
+            assert callable(getattr(main, "main", None)), "main.main is not callable"
+            print(f"[OK] Main module OK (phantomgit {__version__})")
+            sys.exit(0)
+        except Exception as e:
+            print(f"[ERROR] Main module check failed: {e}")
+            print("        The binary may be corrupt. Re-run: phantomgit update --force")
+            sys.exit(1)
 
     parser = build_parser()
     args = parser.parse_args()

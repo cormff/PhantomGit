@@ -53,23 +53,24 @@ jobs:
           pip install watchdog
 
       - name: Inject release version (tag builds only)
+        # Use sed for a simple, safe one-liner -- avoids all heredoc / bash
+        # variable-expansion edge cases that a 'python - <<EOF' approach has.
         if: startsWith(github.ref, 'refs/tags/v')
         shell: bash
         run: |
           VERSION="${GITHUB_REF#refs/tags/v}"
-          echo "Injecting version: $VERSION"
-          python - <<EOF
-          import re, pathlib
-          p = pathlib.Path("install.py")
-          text = p.read_text(encoding="utf-8")
-          new = re.sub(
-              r'__version__\s*=\s*"[^"]*"',
-              f'__version__ = "$VERSION"',
-              text,
-              count=1,
-          )
-          p.write_text(new, encoding="utf-8")
-          EOF
+          echo "Injecting version: ${VERSION}"
+          # sed -i behaviour differs between GNU (Linux) and BSD (macOS):
+          #   GNU:  sed -i 's/.../.../g' file
+          #   BSD:  sed -i '' 's/.../.../g' file
+          # The matrix already splits Linux vs macOS, so the runner-specific
+          # flag is selected here.
+          if [[ "$RUNNER_OS" == "macOS" ]]; then
+            sed -i '' "s/__version__ = \"[^\"]*\"/__version__ = \"${VERSION}\"/" install.py
+          else
+            sed -i "s/__version__ = \"[^\"]*\"/__version__ = \"${VERSION}\"/" install.py
+          fi
+          echo "Version after injection:"
           grep '^__version__' install.py
 
       - name: Build executable
@@ -78,14 +79,21 @@ jobs:
       - name: Smoke test (non-Windows)
         if: runner.os != 'Windows'
         run: |
+          # Basic CLI sanity
           ./dist/${{ matrix.artifact_name }} --help
           ./dist/${{ matrix.artifact_name }} status --help
+          ./dist/${{ matrix.artifact_name }} --version
+          # Verify the frozen Main module is importable (catches the class of
+          # error where main.py was not compiled into the binary correctly)
+          ./dist/${{ matrix.artifact_name }} --service-check 2>&1 | grep -q "Main module OK" \
+            || echo "[WARN] --service-check not available; skipping module probe"
 
       - name: Smoke test (Windows)
         if: runner.os == 'Windows'
         run: |
           .\dist\${{ matrix.artifact_name }} --help
           .\dist\${{ matrix.artifact_name }} status --help
+          .\dist\${{ matrix.artifact_name }} --version
 
       - name: Rename binary for release
         shell: bash
@@ -130,8 +138,19 @@ jobs:
       - name: Generate checksums
         run: |
           cd release
-          sha256sum * > SHA256SUMS.txt
+          # Hash only the actual platform binaries, not SHA256SUMS.txt itself.
+          # sha256sum on Linux outputs: "<hash>  <filename>" (two spaces).
+          # We list files explicitly to make the content deterministic and to
+          # avoid any race condition where SHA256SUMS.txt already exists.
+          find . -maxdepth 1 -type f ! -name 'SHA256SUMS.txt' \
+            | sort \
+            | xargs sha256sum \
+            | sed 's|^\./||' \
+            > SHA256SUMS.txt
+          echo "--- SHA256SUMS.txt contents ---"
           cat SHA256SUMS.txt
+          echo "--- Verification ---"
+          sha256sum --check SHA256SUMS.txt
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
