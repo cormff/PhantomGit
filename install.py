@@ -14,16 +14,17 @@ Subcommands:
     check-update         Check if a newer release is available on GitHub.
     update               Download and apply the latest release.
 """
-import os
-import sys
-import json
-import shutil
+
+import argparse
 import getpass
 import hashlib
-import argparse
+import json
+import os
 import platform
-import tempfile
+import shutil
 import subprocess
+import sys
+import tempfile
 from pathlib import Path
 
 __version__ = "0.1.0"
@@ -42,50 +43,105 @@ LOG_FILE = CONFIG_DIR / "service.log"
 # ============================================================
 DEFAULT_SUPPORTED_IDES = [
     # JetBrains
-    "pycharm", "pycharm64", "idea", "idea64", "webstorm", "phpstorm",
-    "rider", "clion", "goland", "rubymine", "datagrip", "appcode",
+    "pycharm",
+    "pycharm64",
+    "idea",
+    "idea64",
+    "webstorm",
+    "phpstorm",
+    "rider",
+    "clion",
+    "goland",
+    "rubymine",
+    "datagrip",
+    "appcode",
     # Microsoft / VS family
-    "code", "code-insiders", "codium", "devenv",
+    "code",
+    "code-insiders",
+    "codium",
+    "devenv",
     # AI-powered editors
-    "cursor", "windsurf", "zed",
+    "cursor",
+    "windsurf",
+    "zed",
     # Modern editors
-    "sublime_text", "atom", "fleet",
+    "sublime_text",
+    "atom",
+    "fleet",
     # Game engines
-    "godot", "unity", "unityeditor", "unrealeditor", "ue4editor", "ue5editor",
+    "godot",
+    "unity",
+    "unityeditor",
+    "unrealeditor",
+    "ue4editor",
+    "ue5editor",
     # Android / Mobile
-    "studio", "studio64",
+    "studio",
+    "studio64",
     # Terminal editors
-    "nvim", "vim", "emacs",
+    "nvim",
+    "vim",
+    "emacs",
     # Classics
-    "xcode", "eclipse",
+    "xcode",
+    "eclipse",
 ]
 
 DEFAULT_EXCLUDE_DIRS = [
-    "node_modules", "venv", ".venv", "env", "__pycache__",
-    "target", "build", "dist", ".idea", ".vscode", ".gradle",
-    ".next", ".nuxt", "vendor", ".tox",
+    "node_modules",
+    "venv",
+    ".venv",
+    "env",
+    "__pycache__",
+    "target",
+    "build",
+    "dist",
+    ".idea",
+    ".vscode",
+    ".gradle",
+    ".next",
+    ".nuxt",
+    "vendor",
+    ".tox",
 ]
 
 DEFAULT_IGNORE_PATTERNS = [
-    ".env", "id_rsa", "id_ed25519", "credentials.json",
-    ".pem", "secrets.json", ".key", "aws/credentials",
+    ".env",
+    "id_rsa",
+    "id_ed25519",
+    "credentials.json",
+    ".pem",
+    "secrets.json",
+    ".key",
+    "aws/credentials",
 ]
 
 
 def get_default_search_dirs() -> list:
     home = Path.home()
     candidates = [
-        home / "Documents", home / "Projects", home / "projects",
-        home / "Code", home / "code", home / "Repos", home / "repos",
-        home / "dev", home / "Development", home / "workspace",
-        home / "PycharmProjects", home / "WebstormProjects", home / "IdeaProjects",
+        home / "Documents",
+        home / "Projects",
+        home / "projects",
+        home / "Code",
+        home / "code",
+        home / "Repos",
+        home / "repos",
+        home / "dev",
+        home / "Development",
+        home / "workspace",
+        home / "PycharmProjects",
+        home / "WebstormProjects",
+        home / "IdeaProjects",
         home / "Desktop",
     ]
     if platform.system() == "Windows":
-        candidates.extend([
-            home / "source" / "repos",
-            home / "OneDrive" / "Documents",
-        ])
+        candidates.extend(
+            [
+                home / "source" / "repos",
+                home / "OneDrive" / "Documents",
+            ]
+        )
     return [str(d) for d in candidates if d.exists()]
 
 
@@ -140,7 +196,7 @@ def build_default_config(github_token: str, ai_provider: dict) -> dict:
 def secure_write(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
     if os.name == "posix":
-        os.chmod(path, 0o600)
+        path.chmod(0o600)
 
 
 def read_config() -> dict:
@@ -256,9 +312,10 @@ def ask_for_ai_provider(existing: dict) -> dict:
         print("  LM Studio: http://localhost:1234/v1")
         print("  llama.cpp: http://localhost:8080/v1")
         print("  vLLM:      http://localhost:8000/v1")
-        base_url = input("Base URL [https://api.openai.com/v1]: ").strip() \
-            or "https://api.openai.com/v1"
-        is_local = any(h in base_url for h in ("localhost", "127.0.0.1", "0.0.0.0"))
+        base_url = (
+            input("Base URL [https://api.openai.com/v1]: ").strip() or "https://api.openai.com/v1"
+        )
+        is_local = any(h in base_url for h in ("localhost", "127.0.0.1", "0.0.0.0"))  # noqa: S104
         if is_local:
             api_key = input("API key (usually empty for local LLMs, press Enter to skip): ").strip()
         else:
@@ -321,15 +378,19 @@ def get_required_packages(ai_provider_type: str, mode: str = "hybrid") -> dict:
 
 def get_missing_packages(required: dict) -> list:
     import importlib.util
+
     return [
-        pip_name for import_name, pip_name in required.items()
+        pip_name
+        for import_name, pip_name in required.items()
         if importlib.util.find_spec(import_name) is None
     ]
 
 
 def _run_pip(extra_args: list, packages: list) -> tuple:
-    cmd = [sys.executable, "-m", "pip", "install",
-           "--disable-pip-version-check"] + extra_args + packages
+    cmd = (
+        [sys.executable, "-m", "pip", "install", "--disable-pip-version-check"] * extra_args,
+        *packages,
+    )
     print(f"   $ {' '.join(cmd[1:])}")
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode == 0:
@@ -371,6 +432,7 @@ def ensure_dependencies(ai_provider_type: str, mode: str = "hybrid") -> None:
     if not install_packages(missing):
         sys.exit(1)
     import importlib
+
     importlib.invalidate_caches()
     still_missing = get_missing_packages(required)
     if still_missing:
@@ -412,9 +474,9 @@ def scan_projects(config: dict, interactive: bool = True) -> int:
     existing_excluded = []
     if PROJECTS_FILE.exists():
         try:
-            existing_excluded = json.loads(
-                PROJECTS_FILE.read_text(encoding="utf-8")
-            ).get("excluded_projects", [])
+            existing_excluded = json.loads(PROJECTS_FILE.read_text(encoding="utf-8")).get(
+                "excluded_projects", []
+            )
         except json.JSONDecodeError:
             pass
 
@@ -448,9 +510,7 @@ def get_service_invocation() -> tuple:
 
     main_script = (Path(__file__).resolve().parent / "main.py").resolve()
     if not main_script.exists():
-        raise FileNotFoundError(
-            f"main.py not found next to install.py: {main_script}"
-        )
+        raise FileNotFoundError(f"main.py not found next to install.py: {main_script}")
     python_exec = get_python_executable()
     exec_str = f'"{python_exec}" "{main_script}"'
     return exec_str, main_script.parent
@@ -465,6 +525,7 @@ def install_systemd_service(exec_command: str, working_dir: Path) -> None:
     # outer quotes we added for shell-style display. Split into parts but
     # preserve quoting via shlex.
     import shlex
+
     exec_args = shlex.split(exec_command)
     exec_start = " ".join(exec_args)
 
@@ -504,6 +565,7 @@ def install_launchd_agent(exec_command: str, working_dir: Path) -> None:
     plist_path = plist_dir / "com.user.phantomgit.plist"
 
     import shlex
+
     exec_args = shlex.split(exec_command)
     args_xml = "\n".join(f"        <string>{a}</string>" for a in exec_args)
 
@@ -532,10 +594,15 @@ def install_launchd_agent(exec_command: str, working_dir: Path) -> None:
 """
     plist_path.write_text(plist_content, encoding="utf-8")
 
-    subprocess.run(["launchctl", "unload", str(plist_path)],
-                   check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    result = subprocess.run(["launchctl", "load", str(plist_path)],
-                            check=False, capture_output=True, text=True)
+    subprocess.run(
+        ["launchctl", "unload", str(plist_path)],
+        check=False,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    result = subprocess.run(
+        ["launchctl", "load", str(plist_path)], check=False, capture_output=True, text=True
+    )
     if result.returncode == 0:
         print(f"[OK] LaunchAgent installed: {plist_path}")
         print(f"     Logs: tail -f {LOG_FILE}")
@@ -546,17 +613,33 @@ def install_launchd_agent(exec_command: str, working_dir: Path) -> None:
 def install_windows_task(exec_command: str, working_dir: Path) -> None:
     task_name = "PhantomGit"
 
-    subprocess.run(["schtasks", "/Delete", "/TN", task_name, "/F"],
-                   check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    result = subprocess.run([
-        "schtasks", "/Create", "/TN", task_name, "/TR", exec_command,
-        "/SC", "ONLOGON", "/RL", "LIMITED", "/F",
-    ], capture_output=True, text=True)
+    subprocess.run(
+        ["schtasks", "/Delete", "/TN", task_name, "/F"],
+        check=False,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    result = subprocess.run(
+        [
+            "schtasks",
+            "/Create",
+            "/TN",
+            task_name,
+            "/TR",
+            exec_command,
+            "/SC",
+            "ONLOGON",
+            "/RL",
+            "LIMITED",
+            "/F",
+        ],
+        capture_output=True,
+        text=True,
+    )
 
     if result.returncode == 0:
         print(f"[OK] Task Scheduler task installed: {task_name}")
-        subprocess.run(["schtasks", "/Run", "/TN", task_name],
-                       check=False, capture_output=True)
+        subprocess.run(["schtasks", "/Run", "/TN", task_name], check=False, capture_output=True)
         print(f"     Status: schtasks /Query /TN {task_name}")
         print(f"     Logs:   {LOG_FILE}")
         return
@@ -600,10 +683,18 @@ def install_service() -> None:
 # ============================================================
 def uninstall_systemd_service() -> None:
     service_path = Path.home() / ".config" / "systemd" / "user" / "phantomgit.service"
-    subprocess.run(["systemctl", "--user", "stop", "phantomgit.service"],
-                   check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    subprocess.run(["systemctl", "--user", "disable", "phantomgit.service"],
-                   check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    subprocess.run(
+        ["systemctl", "--user", "stop", "phantomgit.service"],
+        check=False,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    subprocess.run(
+        ["systemctl", "--user", "disable", "phantomgit.service"],
+        check=False,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
     if service_path.exists():
         service_path.unlink()
         print(f"[OK] Removed systemd unit: {service_path}")
@@ -614,8 +705,12 @@ def uninstall_systemd_service() -> None:
 
 def uninstall_launchd_agent() -> None:
     plist_path = Path.home() / "Library" / "LaunchAgents" / "com.user.phantomgit.plist"
-    subprocess.run(["launchctl", "unload", str(plist_path)],
-                   check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    subprocess.run(
+        ["launchctl", "unload", str(plist_path)],
+        check=False,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
     if plist_path.exists():
         plist_path.unlink()
         print(f"[OK] Removed LaunchAgent: {plist_path}")
@@ -625,16 +720,24 @@ def uninstall_launchd_agent() -> None:
 
 def uninstall_windows_task() -> None:
     task_name = "PhantomGit"
-    result = subprocess.run(["schtasks", "/Delete", "/TN", task_name, "/F"],
-                            check=False, capture_output=True, text=True)
+    result = subprocess.run(
+        ["schtasks", "/Delete", "/TN", task_name, "/F"], check=False, capture_output=True, text=True
+    )
     if result.returncode == 0:
         print(f"[OK] Removed Task Scheduler task: {task_name}")
     else:
         print(f"[INFO] No task named '{task_name}' (or already removed)")
     appdata = os.environ.get("APPDATA")
     if appdata:
-        bat = (Path(appdata) / "Microsoft" / "Windows" / "Start Menu"
-               / "Programs" / "Startup" / "phantomgit.bat")
+        bat = (
+            Path(appdata)
+            / "Microsoft"
+            / "Windows"
+            / "Start Menu"
+            / "Programs"
+            / "Startup"
+            / "phantomgit.bat"
+        )
         if bat.exists():
             bat.unlink()
             print(f"[OK] Removed Startup entry: {bat}")
@@ -648,16 +751,19 @@ def service_state() -> str:
     if system == "linux":
         r = subprocess.run(
             ["systemctl", "--user", "is-active", "phantomgit.service"],
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
         )
         return r.stdout.strip() or "unknown"
     if system == "darwin":
-        r = subprocess.run(["launchctl", "list", "com.user.phantomgit"],
-                           capture_output=True, text=True)
+        r = subprocess.run(
+            ["launchctl", "list", "com.user.phantomgit"], capture_output=True, text=True
+        )
         return "loaded" if r.returncode == 0 else "not loaded"
     if system == "windows":
-        r = subprocess.run(["schtasks", "/Query", "/TN", "PhantomGit"],
-                           capture_output=True, text=True)
+        r = subprocess.run(
+            ["schtasks", "/Query", "/TN", "PhantomGit"], capture_output=True, text=True
+        )
         if r.returncode != 0:
             return "not installed"
         out = r.stdout
@@ -679,7 +785,7 @@ def cmd_install(args) -> None:
 
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     if os.name == "posix":
-        os.chmod(CONFIG_DIR, 0o700)
+        CONFIG_DIR.chmod(0o700)
     print(f"[OK] Config directory ready: {CONFIG_DIR}")
 
     existing = {}
@@ -730,10 +836,14 @@ def cmd_uninstall(args) -> None:
         print(f"[WARN] Unsupported system: {system}")
 
     if CONFIG_DIR.exists():
-        response = input(
-            f"\nDelete configuration directory {CONFIG_DIR}? "
-            "This removes API keys and the project list. [y/N]: "
-        ).strip().lower()
+        response = (
+            input(
+                f"\nDelete configuration directory {CONFIG_DIR}? "
+                "This removes API keys and the project list. [y/N]: "
+            )
+            .strip()
+            .lower()
+        )
         if response == "y":
             shutil.rmtree(CONFIG_DIR)
             print(f"[OK] Removed: {CONFIG_DIR}")
@@ -789,7 +899,9 @@ def cmd_config_set(args) -> None:
 
     set_nested(config, args.key, value)
     write_config(config)
-    display = mask_value(value) if is_secret_key_path(args.key) and isinstance(value, str) else value
+    display = (
+        mask_value(value) if is_secret_key_path(args.key) and isinstance(value, str) else value
+    )
     print(f"[OK] Set {args.key} = {display}")
 
 
@@ -816,10 +928,12 @@ def cmd_reconfigure_mode(args) -> None:
     if system == "linux":
         print("       systemctl --user restart phantomgit.service")
     elif system == "darwin":
-        print("       launchctl unload ~/Library/LaunchAgents/com.user.phantomgit.plist && "
-              "launchctl load ~/Library/LaunchAgents/com.user.phantomgit.plist")
+        print(
+            "       launchctl unload ~/Library/LaunchAgents/com.user.phantomgit.plist && "
+            "launchctl load ~/Library/LaunchAgents/com.user.phantomgit.plist"
+        )
     elif system == "windows":
-        print('       schtasks /End /TN PhantomGit && schtasks /Run /TN PhantomGit')
+        print("       schtasks /End /TN PhantomGit && schtasks /Run /TN PhantomGit")
 
 
 def cmd_reconfigure_token(args) -> None:
@@ -878,7 +992,7 @@ def cmd_status(args) -> None:
         except Exception as e:
             print(f"[WARN] Could not read log: {e}")
             return
-        for line in lines[-args.log_lines:]:
+        for line in lines[-args.log_lines :]:
             print(f"  {line}")
     else:
         print("\n[INFO] No log file yet.")
@@ -910,6 +1024,7 @@ def cmd_rescan(args) -> None:
 #      published in the release. A mismatch aborts the update.
 #    * The previous binary is moved to a `.bak` sibling before replacement,
 #      so a failed update can be manually rolled back.
+
 
 def parse_semver(s: str) -> tuple:
     """
@@ -952,27 +1067,30 @@ def get_platform_asset_suffix() -> str:
 def http_get_json(url: str, timeout: int = 15) -> dict:
     """Fetch a JSON document via stdlib (no `requests` dependency)."""
     import urllib.request
-    req = urllib.request.Request(url, headers={
-        "Accept": "application/vnd.github.v3+json",
-        "User-Agent": "phantomgit-updater",
-    })
+
+    req = urllib.request.Request(
+        url,
+        headers={
+            "Accept": "application/vnd.github.v3+json",
+            "User-Agent": "phantomgit-updater",
+        },
+    )
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         return json.loads(resp.read().decode("utf-8"))
 
 
-def http_download(url: str, dest: Path,
-                  connect_timeout: int = 15,
-                  read_timeout: int = 600,
-                  expected_size: int = 0) -> None:
+def http_download(
+    url: str, dest: Path, connect_timeout: int = 15, read_timeout: int = 600, expected_size: int = 0
+) -> None:
     """
     Download *url* to *dest* with separate connect / read timeouts.
 
-    connect_timeout  – seconds to wait for the TCP handshake (default 15).
-    read_timeout     – seconds allowed between any two consecutive chunks
+    connect_timeout  - seconds to wait for the TCP handshake (default 15).
+    read_timeout     - seconds allowed between any two consecutive chunks
                        (default 600). This is a socket-level timeout, not a
                        total-transfer timeout, so large files on slow
                        connections are handled correctly.
-    expected_size    – if > 0, raises ValueError when the downloaded size
+    expected_size    - if > 0, raises ValueError when the downloaded size
                        does not match (catches truncated transfers that
                        terminate cleanly without an error).
     """
@@ -984,9 +1102,7 @@ def http_download(url: str, dest: Path,
     # connect and every subsequent socket read.  We use read_timeout here
     # because it is the more generous bound; connect failures typically
     # surface quickly regardless of the value chosen.
-    ctx = None  # use default SSL context (validates certificates)
-    with urllib.request.urlopen(req, timeout=read_timeout) as resp, \
-            open(dest, "wb") as f:
+    with urllib.request.urlopen(req, timeout=read_timeout) as resp, open(dest, "wb") as f:
         chunk_size = 128 * 1024  # 128 KB per chunk
         downloaded = 0
         while True:
@@ -1004,28 +1120,37 @@ def http_download(url: str, dest: Path,
         )
 
 
-def _download_with_retry(url: str, dest: Path,
-                         connect_timeout: int,
-                         read_timeout: int,
-                         expected_size: int,
-                         max_attempts: int = 3) -> None:
+def _download_with_retry(
+    url: str,
+    dest: Path,
+    connect_timeout: int,
+    read_timeout: int,
+    expected_size: int,
+    max_attempts: int = 3,
+) -> None:
     """Retry http_download up to max_attempts times with exponential back-off."""
     import time as _time
+
     last_exc = None
     for attempt in range(1, max_attempts + 1):
         try:
-            http_download(url, dest,
-                          connect_timeout=connect_timeout,
-                          read_timeout=read_timeout,
-                          expected_size=expected_size)
+            http_download(
+                url,
+                dest,
+                connect_timeout=connect_timeout,
+                read_timeout=read_timeout,
+                expected_size=expected_size,
+            )
             return  # success
         except Exception as exc:
             last_exc = exc
             if attempt < max_attempts:
-                wait = 2 ** attempt   # 2, 4 seconds
-                print(f"   [WARN] Attempt {attempt}/{max_attempts} failed "
-                      f"({exc.__class__.__name__}: {exc}). "
-                      f"Retrying in {wait}s...")
+                wait = 2**attempt  # 2, 4 seconds
+                print(
+                    f"   [WARN] Attempt {attempt}/{max_attempts} failed "
+                    f"({exc.__class__.__name__}: {exc}). "
+                    f"Retrying in {wait}s..."
+                )
                 _time.sleep(wait)
                 if dest.exists():
                     dest.unlink(missing_ok=True)
@@ -1089,10 +1214,13 @@ def fetch_checksums(release: dict, connect_timeout: int, read_timeout: int) -> d
         tmp_path = Path(tmp.name)
     try:
         # SHA256SUMS.txt is tiny; use connect_timeout for both phases.
-        http_download(sums_asset["browser_download_url"], tmp_path,
-                      connect_timeout=connect_timeout,
-                      read_timeout=connect_timeout,
-                      expected_size=sums_asset.get("size", 0))
+        http_download(
+            sums_asset["browser_download_url"],
+            tmp_path,
+            connect_timeout=connect_timeout,
+            read_timeout=connect_timeout,
+            expected_size=sums_asset.get("size", 0),
+        )
         result = {}
         for line in tmp_path.read_text(encoding="utf-8").splitlines():
             line = line.strip()
@@ -1120,16 +1248,28 @@ def stop_service() -> None:
     """Best-effort stop of the running service so we can replace its binary."""
     system = platform.system().lower()
     if system == "linux":
-        subprocess.run(["systemctl", "--user", "stop", "phantomgit.service"],
-                       check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(
+            ["systemctl", "--user", "stop", "phantomgit.service"],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
     elif system == "darwin":
         plist = Path.home() / "Library" / "LaunchAgents" / "com.user.phantomgit.plist"
         if plist.exists():
-            subprocess.run(["launchctl", "unload", str(plist)],
-                           check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.run(
+                ["launchctl", "unload", str(plist)],
+                check=False,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
     elif system == "windows":
-        subprocess.run(["schtasks", "/End", "/TN", "PhantomGit"],
-                       check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(
+            ["schtasks", "/End", "/TN", "PhantomGit"],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
 
 
 def start_service() -> None:
@@ -1142,8 +1282,7 @@ def start_service() -> None:
         if plist.exists():
             subprocess.run(["launchctl", "load", str(plist)], check=False)
     elif system == "windows":
-        subprocess.run(["schtasks", "/Run", "/TN", "PhantomGit"],
-                       check=False, capture_output=True)
+        subprocess.run(["schtasks", "/Run", "/TN", "PhantomGit"], check=False, capture_output=True)
 
 
 def is_frozen() -> bool:
@@ -1190,7 +1329,8 @@ def update_from_source(config: dict, force: bool) -> bool:
     print("[INFO] Running 'git pull' in source directory...")
     result = subprocess.run(
         ["git", "-C", str(here), "pull", "--ff-only"],
-        capture_output=True, text=True,
+        capture_output=True,
+        text=True,
     )
     print(result.stdout.strip())
     if result.returncode != 0:
@@ -1203,8 +1343,15 @@ def update_from_source(config: dict, force: bool) -> bool:
     if req.exists():
         print("[INFO] Refreshing Python dependencies...")
         in_venv = sys.prefix != sys.base_prefix
-        pip_args = [sys.executable, "-m", "pip", "install",
-                    "--disable-pip-version-check", "-r", str(req)]
+        pip_args = [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "--disable-pip-version-check",
+            "-r",
+            str(req),
+        ]
         if not in_venv:
             pip_args.insert(4, "--user")
         subprocess.run(pip_args, check=False)
@@ -1221,7 +1368,7 @@ def update_binary(config: dict, release: dict, force: bool) -> bool:
     upd = config.get("update", {})
     timeouts = config.get("timeouts", {})
     connect_timeout = int(timeouts.get("request_seconds", 15))
-    # Binary downloads can be large (10–50 MB). Give them a generous per-chunk
+    # Binary downloads can be large (10-50 MB). Give them a generous per-chunk
     # socket timeout (default 600 s) that is separate from the API call timeout.
     read_timeout = int(upd.get("download_timeout_seconds", 600))
 
@@ -1229,15 +1376,16 @@ def update_binary(config: dict, release: dict, force: bool) -> bool:
 
     suffix = get_platform_asset_suffix()
     if not suffix:
-        print(f"[ERROR] No release asset available for platform "
-              f"{platform.system()} {platform.machine()}.")
+        print(
+            f"[ERROR] No release asset available for platform "
+            f"{platform.system()} {platform.machine()}."
+        )
         return False
 
     asset = find_asset(release, suffix, is_windows)
     if not asset:
         print(f"[ERROR] No matching asset found for suffix '{suffix}'.")
-        print(f"        Assets in release: "
-              f"{[a.get('name') for a in release.get('assets', [])]}")
+        print(f"        Assets in release: {[a.get('name') for a in release.get('assets', [])]}")
         return False
 
     # --------------------------------------------------------
@@ -1250,8 +1398,10 @@ def update_binary(config: dict, release: dict, force: bool) -> bool:
     if expected_sums is None:
         print("[ERROR] SHA256SUMS.txt not found in this release.")
         print("        Cannot update without integrity verification.")
-        print("        If you built this release yourself, regenerate "
-              "it with: sha256sum phantomgit-* > SHA256SUMS.txt")
+        print(
+            "        If you built this release yourself, regenerate "
+            "it with: sha256sum phantomgit-* > SHA256SUMS.txt"
+        )
         return False
 
     expected_hash = expected_sums.get(asset["name"])
@@ -1264,8 +1414,10 @@ def update_binary(config: dict, release: dict, force: bool) -> bool:
     # Step 2: Download the binary with retry + size check.
     # --------------------------------------------------------
     asset_size = asset.get("size", 0)
-    print(f"[INFO] Downloading {asset['name']} "
-          f"({asset_size // 1024:,} KB, up to {read_timeout}s per chunk)...")
+    print(
+        f"[INFO] Downloading {asset['name']} "
+        f"({asset_size // 1024:,} KB, up to {read_timeout}s per chunk)..."
+    )
 
     current_binary = Path(sys.executable).resolve()
     tmp_dir = Path(tempfile.mkdtemp(prefix="phantomgit-update-"))
@@ -1291,12 +1443,12 @@ def update_binary(config: dict, release: dict, force: bool) -> bool:
         actual_hash = sha256_of(tmp_binary)
 
         if actual_hash.lower() != expected_hash.lower():
-            print("[ERROR] SHA256 mismatch — the downloaded file is corrupt "
-                  "or was tampered with.")
+            print("[ERROR] SHA256 mismatch - the downloaded file is corrupt or was tampered with.")
             print(f"        Expected : {expected_hash}")
             print(f"        Actual   : {actual_hash}")
-            print(f"        File size: {tmp_binary.stat().st_size:,} bytes "
-                  f"(expected {asset_size:,})")
+            print(
+                f"        File size: {tmp_binary.stat().st_size:,} bytes (expected {asset_size:,})"
+            )
             print()
             print("Possible causes:")
             print("  1. The download was truncated (network error).")
@@ -1310,7 +1462,7 @@ def update_binary(config: dict, release: dict, force: bool) -> bool:
         print(f"[OK] SHA256 verified: {actual_hash[:16]}...")
 
         if not is_windows:
-            os.chmod(tmp_binary, 0o755)
+            tmp_binary.chmod(0o755)
 
         # --------------------------------------------------------
         # Step 4: Atomic replace (only reached after clean verify).
@@ -1335,7 +1487,7 @@ def update_binary(config: dict, release: dict, force: bool) -> bool:
             else:
                 shutil.move(str(current_binary), str(backup_path))
                 shutil.move(str(tmp_binary), str(current_binary))
-                os.chmod(current_binary, 0o755)
+                current_binary.chmod(0o755)
         except Exception as e:
             print(f"[ERROR] Binary replacement failed: {e}")
             # Attempt rollback.
@@ -1353,8 +1505,7 @@ def update_binary(config: dict, release: dict, force: bool) -> bool:
         start_service()
         print(f"[OK] Updated to {release.get('tag_name', '?')}.")
         if is_windows:
-            print("[INFO] You can delete the .bak file once the new version "
-                  "looks healthy.")
+            print("[INFO] You can delete the .bak file once the new version looks healthy.")
         return True
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
@@ -1384,8 +1535,7 @@ def cmd_update(args) -> None:
         return  # already on latest
 
     if not args.yes:
-        prompt = (f"Update from {__version__} to {release.get('tag_name', '?')}? "
-                  f"[y/N]: ")
+        prompt = f"Update from {__version__} to {release.get('tag_name', '?')}? [y/N]: "
         if input(prompt).strip().lower() != "y":
             print("[INFO] Update cancelled.")
             return
@@ -1406,7 +1556,8 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
-        "--version", action="version",
+        "--version",
+        action="version",
         version=f"phantomgit {__version__}",
     )
     sub = parser.add_subparsers(dest="command", metavar="COMMAND")
@@ -1419,47 +1570,50 @@ def build_parser() -> argparse.ArgumentParser:
     config_sub = p_config.add_subparsers(dest="config_command", metavar="SUBCOMMAND")
 
     p_show = config_sub.add_parser("show", help="Print the configuration.")
-    p_show.add_argument("--unmask", action="store_true",
-                        help="Show secrets in clear text.")
+    p_show.add_argument("--unmask", action="store_true", help="Show secrets in clear text.")
 
     p_get = config_sub.add_parser("get", help="Print one configuration value.")
     p_get.add_argument("key", help="Dot-notation key, e.g. ai_provider.model")
-    p_get.add_argument("--unmask", action="store_true",
-                       help="Show secrets in clear text.")
+    p_get.add_argument("--unmask", action="store_true", help="Show secrets in clear text.")
 
     p_set = config_sub.add_parser("set", help="Set one configuration value.")
     p_set.add_argument("key", help="Dot-notation key, e.g. snapshot.retention_days")
-    p_set.add_argument("value", nargs="?",
-                       help="JSON value (omit to be prompted interactively).")
+    p_set.add_argument("value", nargs="?", help="JSON value (omit to be prompted interactively).")
 
     sub.add_parser("reconfigure-ai", help="Re-run the AI provider wizard.")
     sub.add_parser("reconfigure-mode", help="Switch between polling/watch/hybrid modes.")
     sub.add_parser("reconfigure-token", help="Re-enter the GitHub token.")
 
     p_status = sub.add_parser("status", help="Show service state and recent logs.")
-    p_status.add_argument("--log-lines", type=int, default=15,
-                          help="Number of recent log lines to display (default 15).")
+    p_status.add_argument(
+        "--log-lines",
+        type=int,
+        default=15,
+        help="Number of recent log lines to display (default 15).",
+    )
 
     p_rescan = sub.add_parser("rescan", help="Re-scan disk for git projects.")
-    p_rescan.add_argument("--no-interactive", action="store_true",
-                          help="Don't prompt for extra scan directories.")
+    p_rescan.add_argument(
+        "--no-interactive", action="store_true", help="Don't prompt for extra scan directories."
+    )
 
     sub.add_parser(
         "check-update",
         help="Check whether a newer release is available (exit 0 = up to date, "
-             "2 = update available, 1 = error).",
+        "2 = update available, 1 = error).",
     )
 
     p_update = sub.add_parser(
         "update",
         help="Download and apply the latest release.",
     )
-    p_update.add_argument("--check", action="store_true",
-                          help="Only check for updates, don't download.")
-    p_update.add_argument("--force", action="store_true",
-                          help="Reinstall even if already on the latest version.")
-    p_update.add_argument("-y", "--yes", action="store_true",
-                          help="Skip the confirmation prompt.")
+    p_update.add_argument(
+        "--check", action="store_true", help="Only check for updates, don't download."
+    )
+    p_update.add_argument(
+        "--force", action="store_true", help="Reinstall even if already on the latest version."
+    )
+    p_update.add_argument("-y", "--yes", action="store_true", help="Skip the confirmation prompt.")
 
     return parser
 
@@ -1503,7 +1657,8 @@ def main() -> None:
     # entry-point function exists, without actually starting the service.
     if "--service-check" in sys.argv[1:]:
         try:
-            import main  # noqa: F401
+            import main
+
             assert callable(getattr(main, "main", None)), "main.main is not callable"
             print(f"[OK] Main module OK (phantomgit {__version__})")
             sys.exit(0)
@@ -1533,6 +1688,7 @@ def main() -> None:
     except Exception as e:
         print(f"\n[ERROR] {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
 

@@ -27,11 +27,13 @@ select = [
 ignore = [
     "E501",  # line too long (handled by formatter)
     "S101",  # assert statements (used for type narrowing, fine here)
+    "S103",  # os.chmod / Path.chmod with permissive mask (intentional: 0o600/0o700/0o755)
+    "S108",  # probable insecure temp file (mkdtemp + NamedTemporaryFile are used safely)
     "S603",  # subprocess call (we always control the args)
     "S607",  # subprocess with partial path (`git` is intentionally on PATH)
     "S110",  # try/except/pass (used intentionally in psutil iteration)
-    "S310",  # url open audit (we don't use urllib)
-    "RUF003",  # ambiguous Unicode chars in comments (Turkish text fine)
+    "S310",  # url open audit (urllib used for GitHub API and binary downloads)
+    "RUF003",  # ambiguous unicode chars in comments (Turkish text fine)
     "UP007",  # Optional[X] -> X | None (we still target 3.9)
     "UP045",  # same as above for newer Pythons
 ]

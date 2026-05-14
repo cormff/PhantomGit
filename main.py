@@ -7,15 +7,16 @@ snapshots as orphan commits to a single private "shadow" repository.
 Snapshot branches follow the pattern `{project}-{hash}/{timestamp}` and are
 automatically pruned after a configurable retention period.
 """
+
+import hashlib
+import json
+import logging
 import os
 import re
-import sys
-import json
-import time
-import hashlib
-import logging
-import tempfile
 import subprocess
+import sys
+import tempfile
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
@@ -101,9 +102,11 @@ _gemini_client = None
 _gemini_key_used: Optional[str] = None
 
 
-def _gemini_provider(provider_cfg: dict, diff: str, project_name: str,
-                     ide_name: str, max_chars: int) -> str:
+def _gemini_provider(
+    provider_cfg: dict, diff: str, project_name: str, ide_name: str, max_chars: int
+) -> str:
     from google import genai
+
     global _gemini_client, _gemini_key_used
     api_key = provider_cfg["api_key"]
     model = provider_cfg["model"]
@@ -115,8 +118,9 @@ def _gemini_provider(provider_cfg: dict, diff: str, project_name: str,
     return _clean_response(response.text)
 
 
-def _openai_compatible_provider(provider_cfg: dict, diff: str, project_name: str,
-                                ide_name: str, max_chars: int, timeout: int) -> str:
+def _openai_compatible_provider(
+    provider_cfg: dict, diff: str, project_name: str, ide_name: str, max_chars: int, timeout: int
+) -> str:
     base_url = provider_cfg["base_url"].rstrip("/")
     api_key = provider_cfg.get("api_key", "")
     model = provider_cfg["model"]
@@ -125,21 +129,25 @@ def _openai_compatible_provider(provider_cfg: dict, diff: str, project_name: str
         headers["Authorization"] = f"Bearer {api_key}"
     payload = {
         "model": model,
-        "messages": [{
-            "role": "user",
-            "content": _build_prompt(_truncate_diff(diff, max_chars), project_name, ide_name),
-        }],
+        "messages": [
+            {
+                "role": "user",
+                "content": _build_prompt(_truncate_diff(diff, max_chars), project_name, ide_name),
+            }
+        ],
         "temperature": 0.3,
         "max_tokens": 100,
     }
-    r = requests.post(f"{base_url}/chat/completions", headers=headers,
-                      json=payload, timeout=timeout)
+    r = requests.post(
+        f"{base_url}/chat/completions", headers=headers, json=payload, timeout=timeout
+    )
     r.raise_for_status()
     return _clean_response(r.json()["choices"][0]["message"]["content"])
 
 
-def _anthropic_provider(provider_cfg: dict, diff: str, project_name: str,
-                        ide_name: str, max_chars: int, timeout: int) -> str:
+def _anthropic_provider(
+    provider_cfg: dict, diff: str, project_name: str, ide_name: str, max_chars: int, timeout: int
+) -> str:
     base_url = provider_cfg.get("base_url", "https://api.anthropic.com").rstrip("/")
     api_key = provider_cfg["api_key"]
     model = provider_cfg["model"]
@@ -151,25 +159,28 @@ def _anthropic_provider(provider_cfg: dict, diff: str, project_name: str,
     payload = {
         "model": model,
         "max_tokens": 100,
-        "messages": [{
-            "role": "user",
-            "content": _build_prompt(_truncate_diff(diff, max_chars), project_name, ide_name),
-        }],
+        "messages": [
+            {
+                "role": "user",
+                "content": _build_prompt(_truncate_diff(diff, max_chars), project_name, ide_name),
+            }
+        ],
     }
-    r = requests.post(f"{base_url}/v1/messages", headers=headers,
-                      json=payload, timeout=timeout)
+    r = requests.post(f"{base_url}/v1/messages", headers=headers, json=payload, timeout=timeout)
     r.raise_for_status()
     data = r.json()
     text_blocks = [b.get("text", "") for b in data.get("content", []) if b.get("type") == "text"]
     return _clean_response(" ".join(text_blocks))
 
 
-def get_commit_message(config: dict, diff: str, project_name: str,
-                       ide_name: str, file_count: int) -> str:
+def get_commit_message(
+    config: dict, diff: str, project_name: str, ide_name: str, file_count: int
+) -> str:
     snap = config.get("snapshot", {})
     max_chars = int(snap.get("max_diff_chars", 30000))
-    fallback_tpl = snap.get("no_ai_message_template",
-                            "Backup {timestamp} ({file_count} file(s) changed)")
+    fallback_tpl = snap.get(
+        "no_ai_message_template", "Backup {timestamp} ({file_count} file(s) changed)"
+    )
     fallback = fallback_tpl.format(
         timestamp=datetime.now().strftime("%Y-%m-%d %H:%M"),
         file_count=file_count,
@@ -185,11 +196,13 @@ def get_commit_message(config: dict, diff: str, project_name: str,
         if provider_type == "gemini":
             msg = _gemini_provider(provider_cfg, diff, project_name, ide_name, max_chars)
         elif provider_type == "openai":
-            msg = _openai_compatible_provider(provider_cfg, diff, project_name,
-                                              ide_name, max_chars, timeout)
+            msg = _openai_compatible_provider(
+                provider_cfg, diff, project_name, ide_name, max_chars, timeout
+            )
         elif provider_type == "anthropic":
-            msg = _anthropic_provider(provider_cfg, diff, project_name,
-                                      ide_name, max_chars, timeout)
+            msg = _anthropic_provider(
+                provider_cfg, diff, project_name, ide_name, max_chars, timeout
+            )
         else:
             log.warning(f"Unknown AI provider '{provider_type}', using fallback.")
             return fallback
@@ -206,9 +219,11 @@ def run_git(args: list, cwd: str, config: dict, check: bool = False) -> Optional
     timeout = int(config.get("timeouts", {}).get("git_seconds", 60))
     try:
         result = subprocess.run(
-            ["git"] + args, cwd=cwd,
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            text=True, timeout=timeout,
+            ["git"] * args,
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
         )
         if result.returncode != 0:
             if check:
@@ -247,7 +262,7 @@ def get_active_ide(supported_ides: list) -> Optional[str]:
                 if base == ide_l:
                     return ide_l
                 if base.startswith(ide_l):
-                    suffix = base[len(ide_l):]
+                    suffix = base[len(ide_l) :]
                     if suffix and re.match(r"^[\d._-]", suffix):
                         return ide_l
         except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
@@ -265,13 +280,14 @@ def github_request(method: str, path: str, config: dict, **kwargs) -> requests.R
     timeout = int(config.get("timeouts", {}).get("request_seconds", 15))
 
     headers = kwargs.pop("headers", {})
-    headers.update({
-        "Authorization": f"token {token}",
-        "Accept": "application/vnd.github.v3+json",
-        "User-Agent": "phantomgit",
-    })
-    return requests.request(method, f"{api_url}{path}",
-                            headers=headers, timeout=timeout, **kwargs)
+    headers.update(
+        {
+            "Authorization": f"token {token}",
+            "Accept": "application/vnd.github.v3+json",
+            "User-Agent": "phantomgit",
+        }
+    )
+    return requests.request(method, f"{api_url}{path}", headers=headers, timeout=timeout, **kwargs)
 
 
 _username_cache: Optional[str] = None
@@ -307,8 +323,7 @@ def get_shadow_repo(config: dict) -> Optional[dict]:
 
     snap = config.get("snapshot", {})
     repo_name = snap.get("shadow_repo_name", "phantomgit-shadow")
-    description = snap.get("shadow_repo_description",
-                           "PhantomGit snapshots for all projects")
+    description = snap.get("shadow_repo_description", "PhantomGit snapshots for all projects")
 
     username = get_github_username(config)
     if not username:
@@ -375,8 +390,7 @@ def cleanup_legacy_remote(project_path: str, config: dict) -> None:
     """Old versions wrote tokens into .git/config; remove that remote."""
     remotes = run_git(["remote"], cwd=project_path, config=config)
     if remotes and "shadow" in remotes.split():
-        url = run_git(["remote", "get-url", "shadow"],
-                      cwd=project_path, config=config) or ""
+        url = run_git(["remote", "get-url", "shadow"], cwd=project_path, config=config) or ""
         if "@github.com" in url and "https://" in url:
             log.warning(
                 f"[{os.path.basename(project_path)}] Removing insecure legacy "
@@ -390,7 +404,7 @@ def cleanup_legacy_remote(project_path: str, config: dict) -> None:
 # ============================================================
 def project_slug(project_path: str) -> str:
     name = os.path.basename(project_path)
-    h = hashlib.md5(project_path.encode()).hexdigest()[:6]
+    h = hashlib.sha256(project_path.encode()).hexdigest()[:6]
     raw = f"{name}-{h}"
     # Sanitize for git ref naming
     return re.sub(r"[^A-Za-z0-9._-]", "-", raw)[:80]
@@ -409,8 +423,7 @@ def make_branch_name(config: dict, slug: str) -> str:
 # ============================================================
 #  Snapshot creation (orphan commits, preserves user's index)
 # ============================================================
-def create_snapshot(config: dict, project_path: str, repo_info: dict,
-                    ide_name: str) -> bool:
+def create_snapshot(config: dict, project_path: str, repo_info: dict, ide_name: str) -> bool:
     """
     Create a snapshot without touching the user's working tree, index, or HEAD.
 
@@ -430,33 +443,34 @@ def create_snapshot(config: dict, project_path: str, repo_info: dict,
         log.warning(f"[{project_name}] No initial commit found. Skipping.")
         return False
 
-    stash_sha = run_git(["stash", "create", "-u"],
-                        cwd=project_path, config=config, check=True)
+    stash_sha = run_git(["stash", "create", "-u"], cwd=project_path, config=config, check=True)
     if not stash_sha:
         return False
 
-    diff = run_git(["diff", "HEAD", stash_sha],
-                   cwd=project_path, config=config) or ""
+    diff = run_git(["diff", "HEAD", stash_sha], cwd=project_path, config=config) or ""
     if not diff.strip():
         return False
 
-    name_only = run_git(["diff", "--name-only", "HEAD", stash_sha],
-                        cwd=project_path, config=config) or ""
-    file_count = len([l for l in name_only.splitlines() if l.strip()])
+    name_only = (
+        run_git(["diff", "--name-only", "HEAD", stash_sha], cwd=project_path, config=config) or ""
+    )
+    file_count = len([line for line in name_only.splitlines() if line.strip()])
 
     log.info(f"[{project_name}] Change detected ({file_count} file(s)). Creating snapshot...")
 
     ai_msg = get_commit_message(config, diff, project_name, ide_name, file_count)
     full_msg = f"{msg_prefix_tpl.format(ide=ide_name.upper())} {ai_msg}".strip()
 
-    stash_tree = run_git(["rev-parse", f"{stash_sha}^{{tree}}"],
-                         cwd=project_path, config=config, check=True)
+    stash_tree = run_git(
+        ["rev-parse", f"{stash_sha}^{{tree}}"], cwd=project_path, config=config, check=True
+    )
     if not stash_tree:
         return False
 
     # Orphan commit (no -p): shadow repo stays compact
-    commit_sha = run_git(["commit-tree", stash_tree, "-m", full_msg],
-                         cwd=project_path, config=config, check=True)
+    commit_sha = run_git(
+        ["commit-tree", stash_tree, "-m", full_msg], cwd=project_path, config=config, check=True
+    )
     if not commit_sha:
         return False
 
@@ -464,8 +478,10 @@ def create_snapshot(config: dict, project_path: str, repo_info: dict,
     token = config["github"]["token"]
     push_url = repo_info["clone_url"]
 
-    push_args = auth_header_arg(token) + [
-        "push", push_url,
+    push_args = [
+        *auth_header_arg(token),
+        "push",
+        push_url,
         f"{commit_sha}:refs/heads/{branch_name}",
     ]
     push_result = run_git(push_args, cwd=project_path, config=config, check=True)
@@ -485,7 +501,7 @@ def list_remote_branches(config: dict, repo_info: dict) -> list:
     """Return list of branch names in the shadow repo via git ls-remote."""
     token = config["github"]["token"]
     push_url = repo_info["clone_url"]
-    args = auth_header_arg(token) + ["ls-remote", "--heads", push_url]
+    args = [*auth_header_arg(token), "ls-remote", "--heads", push_url]
     # Run from temp dir so we don't depend on any user repo
     with tempfile.TemporaryDirectory() as tmp:
         output = run_git(args, cwd=tmp, config=config, check=True)
@@ -499,7 +515,7 @@ def list_remote_branches(config: dict, repo_info: dict) -> list:
             continue
         ref = parts[1]
         if ref.startswith("refs/heads/"):
-            branches.append(ref[len("refs/heads/"):])
+            branches.append(ref[len("refs/heads/") :])
     return branches
 
 
@@ -515,8 +531,7 @@ def find_expired_branches(branches: list, config: dict) -> list:
     if not template.endswith("{timestamp}"):
         log.warning("branch_template doesn't end with {timestamp}; cleanup disabled.")
         return []
-    prefix = template[:-len("{timestamp}")].replace("{project_slug}", "(?P<slug>[^/]+)")
-    pattern_str = "^" + prefix + r"(?P<ts>\d{4,8}[-_]?\d{2,6}(?:[-_]?\d{2,6})*)$"
+    prefix = template[: -len("{timestamp}")].replace("{project_slug}", "(?P<slug>[^/]+)")
     # Compile a more forgiving pattern that just needs digits/separators at the end
     pattern = re.compile("^" + prefix + r"(?P<ts>[\d_\-]+)$")
 
@@ -547,17 +562,19 @@ def delete_remote_branches(config: dict, repo_info: dict, branches: list) -> int
     with tempfile.TemporaryDirectory() as tmp:
         # init a throwaway repo so `git push` has a workdir
         init_result = subprocess.run(
-            ["git", "init", "-q"], cwd=tmp,
-            capture_output=True, text=True,
+            ["git", "init", "-q"],
+            cwd=tmp,
+            capture_output=True,
+            text=True,
         )
         if init_result.returncode != 0:
             log.error(f"Failed to init temp repo for cleanup: {init_result.stderr}")
             return 0
 
         for i in range(0, len(branches), chunk_size):
-            chunk = branches[i:i + chunk_size]
+            chunk = branches[i : i + chunk_size]
             refspecs = [f":refs/heads/{name}" for name in chunk]
-            args = auth_header_arg(token) + ["push", push_url] + refspecs
+            args = [*auth_header_arg(token), "push", push_url, *refspecs]
             result = run_git(args, cwd=tmp, config=config, check=True)
             if result is not None:
                 deleted += len(chunk)
@@ -577,12 +594,15 @@ def run_branch_cleanup(config: dict) -> None:
         all_branches = list_remote_branches(config, repo_info)
         expired = find_expired_branches(all_branches, config)
         if not expired:
-            log.info(f"Cleanup: no expired branches "
-                     f"(scanned {len(all_branches)}, retention "
-                     f"{snap.get('retention_days', 7)}d).")
+            log.info(
+                f"Cleanup: no expired branches "
+                f"(scanned {len(all_branches)}, retention "
+                f"{snap.get('retention_days', 7)}d)."
+            )
             return
-        log.info(f"Cleanup: deleting {len(expired)} expired branches "
-                 f"(of {len(all_branches)} total)...")
+        log.info(
+            f"Cleanup: deleting {len(expired)} expired branches (of {len(all_branches)} total)..."
+        )
         deleted = delete_remote_branches(config, repo_info, expired)
         log.info(f"Cleanup: deleted {deleted} branches.")
     except Exception as e:
@@ -592,8 +612,9 @@ def run_branch_cleanup(config: dict) -> None:
 # ============================================================
 #  Project loop
 # ============================================================
-def process_single_project(config: dict, project_path: str,
-                           ide_name: str, repo_info: Optional[dict] = None) -> bool:
+def process_single_project(
+    config: dict, project_path: str, ide_name: str, repo_info: Optional[dict] = None
+) -> bool:
     """
     Process one project. Returns True if a snapshot was pushed.
 
@@ -611,16 +632,14 @@ def process_single_project(config: dict, project_path: str,
         if has_sensitive_files(project_path, ignore_patterns, config):
             return False
 
-        status = run_git(["status", "--porcelain"],
-                         cwd=project_path, config=config)
+        status = run_git(["status", "--porcelain"], cwd=project_path, config=config)
         if not status:
             return False
 
         if repo_info is None:
             repo_info = get_shadow_repo(config)
             if not repo_info:
-                log.error(f"[{os.path.basename(project_path)}] "
-                          "Could not reach shadow repo.")
+                log.error(f"[{os.path.basename(project_path)}] Could not reach shadow repo.")
                 return False
 
         return create_snapshot(config, project_path, repo_info, ide_name)
@@ -629,8 +648,7 @@ def process_single_project(config: dict, project_path: str,
         return False
 
 
-def process_projects(config: dict, projects: list, excluded: list,
-                     ide_name: str) -> int:
+def process_projects(config: dict, projects: list, excluded: list, ide_name: str) -> int:
     """Process all projects; return number of snapshots successfully pushed."""
     repo_info = None  # lazily fetched on first project with changes
     pushed = 0
@@ -643,8 +661,7 @@ def process_projects(config: dict, projects: list, excluded: list,
 
         # Fetch shadow repo on first project that actually has changes
         if repo_info is None:
-            status = run_git(["status", "--porcelain"],
-                             cwd=project_path, config=config)
+            status = run_git(["status", "--porcelain"], cwd=project_path, config=config)
             if status:
                 repo_info = get_shadow_repo(config)
                 if not repo_info:
@@ -672,11 +689,13 @@ def process_projects(config: dict, projects: list, excluded: list,
 #    * Filesystem events that fall inside `exclude_dirs` or that target the
 #      `.git/` directory itself are ignored at the event-handler level.
 
+
 def _try_import_watchdog():
     """Return (Observer, FileSystemEventHandler) or (None, None) if unavailable."""
     try:
-        from watchdog.observers import Observer
         from watchdog.events import FileSystemEventHandler
+        from watchdog.observers import Observer
+
         return Observer, FileSystemEventHandler
     except ImportError:
         return None, None
@@ -685,8 +704,7 @@ def _try_import_watchdog():
 class _ProjectEventHandler:
     """Created per-project. Reports events into a shared queue."""
 
-    def __init__(self, project_path: str, event_queue, exclude_dirs: set,
-                 ignore_extensions: set):
+    def __init__(self, project_path: str, event_queue, exclude_dirs: set, ignore_extensions: set):
         self.project_path = project_path
         self.event_queue = event_queue
         self.exclude_dirs = exclude_dirs
@@ -725,10 +743,12 @@ class _ProjectEventHandler:
 
 def _build_event_handler_class(base_handler_cls):
     """Compose our handler with watchdog's base class at runtime."""
+
     class _Handler(base_handler_cls, _ProjectEventHandler):
         def __init__(self, *args, **kwargs):
             _ProjectEventHandler.__init__(self, *args, **kwargs)
             base_handler_cls.__init__(self)
+
     return _Handler
 
 
@@ -747,13 +767,23 @@ class FileWatcher:
 
     # File extensions that watchdog will report on but git almost certainly
     # doesn't care about. Filtering these reduces noise dramatically.
-    NOISY_EXTENSIONS = frozenset([
-        ".pyc", ".pyo", ".pyd",
-        ".class", ".o", ".obj",
-        ".log", ".tmp", ".temp", ".cache",
-        ".lock",
-        ".swo", ".swn",
-    ])
+    NOISY_EXTENSIONS = frozenset(
+        [
+            ".pyc",
+            ".pyo",
+            ".pyd",
+            ".class",
+            ".o",
+            ".obj",
+            ".log",
+            ".tmp",
+            ".temp",
+            ".cache",
+            ".lock",
+            ".swo",
+            ".swn",
+        ]
+    )
 
     def __init__(self, config: dict, projects: list, excluded: list):
         self.config = config
@@ -779,6 +809,7 @@ class FileWatcher:
 
         # Lazy stdlib import — only needed in watch mode
         import queue as _queue
+
         self.event_queue = _queue.Queue(maxsize=10000)
 
         exclude_dirs = set(self.config.get("scanning", {}).get("exclude_dirs", []))
@@ -821,6 +852,7 @@ class FileWatcher:
 
         # Pull every queued event and update last-event timestamps.
         import queue as _queue
+
         try:
             while True:
                 project_path, ts = self.event_queue.get_nowait()
@@ -865,7 +897,6 @@ class FileWatcher:
         self._available = False
 
 
-
 # ============================================================
 #  Main loop
 # ============================================================
@@ -901,9 +932,7 @@ def _run_polling_loop(config: dict) -> None:
                 run_branch_cleanup(config)
                 last_cleanup_time = now
 
-            poll_seconds = int(
-                config.get("snapshot", {}).get("poll_interval_seconds", 900)
-            )
+            poll_seconds = int(config.get("snapshot", {}).get("poll_interval_seconds", 900))
             time.sleep(poll_seconds)
 
         except KeyboardInterrupt:
