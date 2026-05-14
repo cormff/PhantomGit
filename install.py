@@ -308,7 +308,8 @@ def ask_for_mode(existing: dict) -> str:
     return "hybrid"
 
 
-
+def get_required_packages(ai_provider_type: str, mode: str = "hybrid") -> dict:
+    """Return {import_name: pip_name} for packages needed given the user's choices."""
     packages = {"requests": "requests", "psutil": "psutil"}
     if ai_provider_type == "gemini":
         packages["google.genai"] = "google-genai"
@@ -435,8 +436,8 @@ def get_service_invocation() -> tuple:
     Returns (exec_command_string, working_dir_path).
 
     - PyInstaller binary: invokes the install binary itself with `--service`
-      (main.py is bundled inside the binary).
-    - Python source: invokes the configured Python interpreter on main.py.
+      (Main.py is bundled inside the binary).
+    - Python source: invokes the configured Python interpreter on Main.py.
     """
     if getattr(sys, "frozen", False):
         # We're running inside a PyInstaller bundle
@@ -444,10 +445,10 @@ def get_service_invocation() -> tuple:
         exec_str = f'"{binary_path}" --service'
         return exec_str, binary_path.parent
 
-    main_script = (Path(__file__).resolve().parent / "main.py").resolve()
+    main_script = (Path(__file__).resolve().parent / "Main.py").resolve()
     if not main_script.exists():
         raise FileNotFoundError(
-            f"main.py not found next to install.py: {main_script}"
+            f"Main.py not found next to install.py: {main_script}"
         )
     python_exec = get_python_executable()
     exec_str = f'"{python_exec}" "{main_script}"'
@@ -1370,15 +1371,15 @@ CONFIG_COMMANDS = {
 def main() -> None:
     # Special mode: when running as the background service (typically when
     # invoked by systemd / launchd / Task Scheduler with --service), delegate
-    # to main.py's main loop. This is the entry point for PyInstaller
-    # binaries; in source mode the service uses main.py directly.
+    # to Main.py's main loop. This is the entry point for PyInstaller
+    # binaries; in source mode the service uses Main.py directly.
     if "--service" in sys.argv[1:]:
         try:
-            import main
+            import Main
         except ImportError:
             print("[ERROR] Could not import Main module.")
             sys.exit(1)
-        main.main()
+        Main.main()
         return
 
     parser = build_parser()

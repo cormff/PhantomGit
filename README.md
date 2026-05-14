@@ -16,6 +16,9 @@ you.
 
 ## Features
 
+- **Real-time change detection** — uses `watchdog` to react to file
+  changes in seconds, not minutes. Falls back to polling automatically
+  if `watchdog` isn't available or the filesystem doesn't support it.
 - **Zero-touch backups** — captures your working tree on a schedule without
   modifying your branch, staging area, or working files.
 - **Single shadow repository** — all your projects share one private repo on
@@ -143,6 +146,9 @@ python install.py config set ai_provider.model gpt-4
 # Re-run the AI provider wizard
 python install.py reconfigure-ai
 
+# Switch between polling / watch / hybrid change detection modes
+python install.py reconfigure-mode
+
 # Replace the stored GitHub token
 python install.py reconfigure-token
 
@@ -216,6 +222,35 @@ The matching is strict (exact name or known suffix patterns like
 `pycharm64`, `studio64`) to avoid false positives like the old
 `code` → `qrencode` collision.
 
+### Change detection modes
+
+PhantomGit supports three modes, configurable via `snapshot.mode`:
+
+| Mode | How it works | When to use |
+|------|--------------|-------------|
+| **`hybrid`** (default) | Real-time file watching via `watchdog` + a periodic "safety net" poll every hour. | Best for almost everyone. Reacts in seconds, plus a backstop for missed events. |
+| **`watch`** | Pure event-driven via `watchdog`. No periodic polling. | Slightly lower overhead. Use if your projects live on a local filesystem you fully trust. |
+| **`polling`** | Checks every `poll_interval_seconds` (default 15 min). No `watchdog` dependency. | Use for projects on network mounts (NFS, SMB, SSHFS) where filesystem events don't fire, or on systems where `watchdog` won't install. |
+
+In `watch` and `hybrid` modes:
+
+- Filesystem events trigger a **debounce timer** (`debounce_seconds`,
+  default 30). When you save a file, PhantomGit waits 30 seconds of
+  inactivity before snapshotting. This collapses bursts of saves
+  (auto-format-on-save, find-and-replace across many files) into a
+  single snapshot.
+- Events inside `.git/`, inside any `exclude_dirs` directory, or matching
+  noisy extensions (`.pyc`, `.log`, `.swp`, `.tmp`, etc.) are filtered
+  out at the source.
+- The watcher automatically restarts when you add or remove projects
+  via `rescan`.
+
+To switch modes after install:
+
+```bash
+phantomgit reconfigure-mode
+```
+
 ---
 
 ## Configuration Reference
@@ -231,7 +266,11 @@ syntax errors.
 | `github.token` | (prompted) | GitHub Personal Access Token. |
 | `github.api_url` | `https://api.github.com` | GitHub API base. Change for GitHub Enterprise. |
 | `ai_provider.type` | `none` | One of `none`, `gemini`, `openai`, `anthropic`. |
-| `snapshot.poll_interval_seconds` | `900` | How often (in seconds) to check for changes. |
+| `snapshot.poll_interval_seconds` | `900` | How often (in seconds) to check for changes in `polling` mode. |
+| `snapshot.mode` | `hybrid` | `polling` / `watch` / `hybrid`. See "Change detection modes" above. |
+| `snapshot.debounce_seconds` | `30` | In watch/hybrid mode, wait this long for the next event before snapshotting. |
+| `snapshot.watch_tick_seconds` | `5` | How often the watch loop wakes to process queued events. |
+| `snapshot.safety_poll_interval_seconds` | `3600` | In hybrid mode, run a full polling sweep this often as a backstop. |
 | `snapshot.shadow_repo_name` | `phantomgit-shadow` | Name of the private repo on GitHub. |
 | `snapshot.branch_template` | `{project_slug}/{timestamp}` | Branch naming pattern. |
 | `snapshot.retention_days` | `7` | Snapshots older than this are deleted. |
@@ -415,10 +454,35 @@ python install.py reconfigure-token
 
 ### Snapshots happen too frequently / not frequently enough
 
+In `polling` mode:
+
 ```bash
 python install.py config set snapshot.poll_interval_seconds 300   # 5 minutes
 python install.py config set snapshot.poll_interval_seconds 1800  # 30 minutes
 ```
+
+In `watch` or `hybrid` mode, tune the debounce window instead:
+
+```bash
+python install.py config set snapshot.debounce_seconds 10   # snapshot 10s after last save
+python install.py config set snapshot.debounce_seconds 60   # be more patient
+```
+
+### Watch mode isn't reacting to changes
+
+- Check the log: `tail -f ~/.config/phantomgit/service.log` — there
+  should be a line like "File watcher started (N project(s))".
+- If you see "Falling back to polling mode", the `watchdog` package
+  probably isn't installed. Run `pip install watchdog` (or
+  `python install.py reconfigure-mode` and pick hybrid again — it
+  reinstalls dependencies).
+- Network mounts (NFS, SMB, SSHFS) generally don't deliver filesystem
+  events. Switch to `polling` mode for those projects:
+  `python install.py config set snapshot.mode polling`.
+- On Linux, the kernel limits the number of inotify watches per user
+  (`/proc/sys/fs/inotify/max_user_watches`). Large monorepos can hit
+  this limit. Raise it with: `echo fs.inotify.max_user_watches=524288
+  | sudo tee -a /etc/sysctl.conf && sudo sysctl -p`.
 
 ### My local Ollama / LM Studio isn't being called
 

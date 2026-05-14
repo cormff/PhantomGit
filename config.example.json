@@ -49,7 +49,12 @@
         "no_ai_message_template": "Backup {timestamp} ({file_count} file(s) changed)",
         "retention_days": 7,
         "cleanup_enabled": true,
-        "cleanup_interval_seconds": 21600
+        "cleanup_interval_seconds": 21600,
+        "mode": "hybrid",
+        "_mode_comment": "polling | watch | hybrid (recommended)",
+        "debounce_seconds": 30,
+        "watch_tick_seconds": 5,
+        "safety_poll_interval_seconds": 3600
     },
     "scanning": {
         "supported_ides": [

@@ -48,8 +48,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install pyinstaller>=6.0
           pip install -r requirements.txt
-          # Install Gemini SDK so the binary can support it out of the box
+          # Install optional providers so the binary supports them out of the box
           pip install google-genai
+          pip install watchdog
 
       - name: Inject release version (tag builds only)
         if: startsWith(github.ref, 'refs/tags/v')

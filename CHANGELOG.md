@@ -9,6 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Real-time change detection** via the `watchdog` library. Three modes
+  selectable at install or via `reconfigure-mode`:
+  - `hybrid` (default): event-driven snapshots + hourly safety-net poll.
+  - `watch`: pure event-driven.
+  - `polling`: original interval-based polling (no extra dependencies).
+  Events are debounced for 30 seconds by default (configurable via
+  `snapshot.debounce_seconds`) so bursts of saves collapse into a single
+  snapshot. The watcher automatically falls back to polling if
+  `watchdog` is unavailable or no projects can be watched.
+- New CLI subcommand: `reconfigure-mode` switches between detection
+  modes and installs the appropriate dependencies.
+- Configuration keys: `snapshot.mode`, `snapshot.debounce_seconds`,
+  `snapshot.watch_tick_seconds`, `snapshot.safety_poll_interval_seconds`.
+- PyInstaller binaries now ship with `watchdog` and all its OS-specific
+  observer backends (inotify on Linux, FSEvents on macOS,
+  ReadDirectoryChangesW on Windows) bundled, so watch mode works out of
+  the box for binary installations.
+
 ### Changed
 
 - **Project renamed to PhantomGit** (previously "Auto-Committer").
