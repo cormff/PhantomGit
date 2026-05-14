@@ -1,7 +1,47 @@
-[project]
-name = "autosaveprojects"
-version = "0.1.0"
-requires-python = ">=3.12"
-dependencies = [
-    "requests>=2.34.0",
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+# Files / paths to exclude from linting.
+exclude = [
+    ".venv",
+    "venv",
+    "build",
+    "dist",
+    "__pycache__",
+    "*.egg-info",
 ]
+
+[tool.ruff.lint]
+# Rule selection: balance strictness with not nitpicking the existing style.
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "B",    # flake8-bugbear
+    "UP",   # pyupgrade
+    "S",    # flake8-bandit (security)
+    "RUF",  # ruff-specific rules
+]
+ignore = [
+    "E501",  # line too long (handled by formatter)
+    "S101",  # assert statements (used for type narrowing, fine here)
+    "S603",  # subprocess call (we always control the args)
+    "S607",  # subprocess with partial path (`git` is intentionally on PATH)
+    "S110",  # try/except/pass (used intentionally in psutil iteration)
+    "S310",  # url open audit (we don't use urllib)
+    "RUF003",  # ambiguous Unicode chars in comments (Turkish text fine)
+    "UP007",  # Optional[X] -> X | None (we still target 3.9)
+    "UP045",  # same as above for newer Pythons
+]
+
+[tool.ruff.lint.per-file-ignores]
+"Main.py" = [
+    "S113",  # we set timeouts via the config object
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"

@@ -1,0 +1,95 @@
+{
+    "github": {
+        "token": "REPLACE_WITH_YOUR_GITHUB_PERSONAL_ACCESS_TOKEN",
+        "api_url": "https://api.github.com"
+    },
+    "ai_provider": {
+        "type": "none",
+        "_comment": "type can be: none | gemini | openai | anthropic",
+        "_examples": {
+            "gemini": {
+                "type": "gemini",
+                "api_key": "AIza...",
+                "model": "gemini-2.5-flash-lite"
+            },
+            "openai": {
+                "type": "openai",
+                "base_url": "https://api.openai.com/v1",
+                "api_key": "sk-...",
+                "model": "gpt-4o-mini"
+            },
+            "ollama_local": {
+                "type": "openai",
+                "base_url": "http://localhost:11434/v1",
+                "api_key": "",
+                "model": "llama3.2"
+            },
+            "lmstudio_local": {
+                "type": "openai",
+                "base_url": "http://localhost:1234/v1",
+                "api_key": "",
+                "model": "local-model"
+            },
+            "anthropic": {
+                "type": "anthropic",
+                "api_key": "sk-ant-...",
+                "base_url": "https://api.anthropic.com",
+                "model": "claude-haiku-4-5"
+            }
+        }
+    },
+    "snapshot": {
+        "poll_interval_seconds": 900,
+        "max_diff_chars": 30000,
+        "shadow_repo_name": "phantomgit-shadow",
+        "shadow_repo_description": "PhantomGit snapshots for all projects",
+        "branch_template": "{project_slug}/{timestamp}",
+        "timestamp_format": "%Y%m%d-%H%M%S",
+        "commit_message_prefix": "[{ide}]",
+        "no_ai_message_template": "Backup {timestamp} ({file_count} file(s) changed)",
+        "retention_days": 7,
+        "cleanup_enabled": true,
+        "cleanup_interval_seconds": 21600
+    },
+    "scanning": {
+        "supported_ides": [
+            "pycharm", "pycharm64", "idea", "idea64", "webstorm", "phpstorm",
+            "rider", "clion", "goland", "rubymine", "datagrip", "appcode",
+            "code", "code-insiders", "codium", "devenv",
+            "cursor", "windsurf", "zed",
+            "sublime_text", "atom", "fleet",
+            "godot", "unity", "unityeditor", "unrealeditor", "ue4editor", "ue5editor",
+            "studio", "studio64",
+            "nvim", "vim", "emacs",
+            "xcode", "eclipse"
+        ],
+        "exclude_dirs": [
+            "node_modules", "venv", ".venv", "env", "__pycache__",
+            "target", "build", "dist", ".idea", ".vscode", ".gradle",
+            ".next", ".nuxt", "vendor", ".tox"
+        ],
+        "ignore_patterns": [
+            ".env", "id_rsa", "id_ed25519", "credentials.json",
+            ".pem", "secrets.json", ".key", "aws/credentials"
+        ],
+        "search_dirs": [
+            "~/Documents",
+            "~/Projects",
+            "~/Code",
+            "~/dev",
+            "~/workspace",
+            "~/PycharmProjects"
+        ]
+    },
+    "timeouts": {
+        "request_seconds": 15,
+        "git_seconds": 60
+    },
+    "update": {
+        "github_repo": "YOUR_USERNAME/phantomgit",
+        "include_prereleases": false,
+        "auto_check_enabled": true,
+        "auto_check_interval_days": 7,
+        "asset_pattern": "phantomgit-{platform}{ext}"
+    }
+}

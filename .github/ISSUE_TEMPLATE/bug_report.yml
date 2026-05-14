@@ -1,0 +1,130 @@
+name: Bug Report
+description: Something isn't working as expected
+title: "[Bug] "
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug report!
+
+        **Before submitting**, please make sure that this issue isn't:
+        - A security vulnerability (please use [private vulnerability reporting](../security/advisories/new) instead)
+        - A request for help configuring your AI provider's credentials
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: A clear description of the bug.
+      placeholder: When I run `python install.py status`, the service shows as 'inactive' even though I just installed it...
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to Reproduce
+      description: Numbered steps that lead to the bug.
+      placeholder: |
+        1. Run `python install.py`
+        2. Choose AI provider option "3" (OpenAI-compatible)
+        3. Enter base URL `http://localhost:11434/v1`
+        4. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What should have happened?
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual Behavior
+      description: What actually happened? Include error messages.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating System
+      options:
+        - Linux (please specify distribution in environment)
+        - macOS
+        - Windows
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: Environment Details
+      description: OS version, Python version, distribution, etc.
+      placeholder: "Ubuntu 24.04, Python 3.12.3"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install-method
+    attributes:
+      label: How was PhantomGit installed?
+      options:
+        - From source (`python install.py`)
+        - Pre-built binary from Releases
+        - Other (please describe in description)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: ai-provider
+    attributes:
+      label: AI Provider in Use
+      options:
+        - None
+        - Gemini
+        - OpenAI
+        - Anthropic
+        - OpenAI-compatible (local LLM)
+        - Not applicable
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant Log Output
+      description: |
+        Paste relevant lines from `~/.config/phantomgit/service.log`.
+        **Please redact any API keys, tokens, or sensitive paths!**
+      render: text
+      placeholder: |
+        2026-05-14 14:30:22 [INFO] PhantomGit service started.
+        2026-05-14 14:30:23 [ERROR] ...
+    validations:
+      required: false
+
+  - type: textarea
+    id: status-output
+    attributes:
+      label: `phantomgit status` Output
+      description: The output of running `python install.py status` (or `phantomgit status` for binary installs).
+      render: text
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Final Checks
+      options:
+        - label: I searched existing issues and did not find a duplicate.
+          required: true
+        - label: I have redacted all secrets (API keys, tokens, personal paths) from the logs above.
+          required: true

@@ -1,0 +1,158 @@
+name: Build
+
+on:
+  push:
+    branches: [main, master]
+    tags:
+      - "v*"   # any tag like v1.0.0, v1.2.3, v2.0.0-beta1
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:    # allow manual triggering from the Actions tab
+
+permissions:
+  contents: write   # required to create GitHub Releases on tag push
+
+jobs:
+  build:
+    name: Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            artifact_name: phantomgit
+            asset_suffix: linux-x86_64
+          - os: macos-13         # Intel macOS
+            artifact_name: phantomgit
+            asset_suffix: macos-x86_64
+          - os: macos-14         # Apple Silicon
+            artifact_name: phantomgit
+            asset_suffix: macos-arm64
+          - os: windows-latest
+            artifact_name: phantomgit.exe
+            asset_suffix: windows-x86_64
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller>=6.0
+          pip install -r requirements.txt
+          # Install Gemini SDK so the binary can support it out of the box
+          pip install google-genai
+
+      - name: Inject release version (tag builds only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          echo "Injecting version: $VERSION"
+          python - <<EOF
+          import re, pathlib
+          p = pathlib.Path("install.py")
+          text = p.read_text(encoding="utf-8")
+          new = re.sub(
+              r'__version__\s*=\s*"[^"]*"',
+              f'__version__ = "$VERSION"',
+              text,
+              count=1,
+          )
+          p.write_text(new, encoding="utf-8")
+          EOF
+          grep '^__version__' install.py
+
+      - name: Build executable
+        run: pyinstaller phantomgit.spec --clean --noconfirm
+
+      - name: Smoke test (non-Windows)
+        if: runner.os != 'Windows'
+        run: |
+          ./dist/${{ matrix.artifact_name }} --help
+          ./dist/${{ matrix.artifact_name }} status --help
+
+      - name: Smoke test (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          .\dist\${{ matrix.artifact_name }} --help
+          .\dist\${{ matrix.artifact_name }} status --help
+
+      - name: Rename binary for release
+        shell: bash
+        run: |
+          mkdir -p release
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            cp "dist/${{ matrix.artifact_name }}" "release/phantomgit-${{ matrix.asset_suffix }}.exe"
+          else
+            cp "dist/${{ matrix.artifact_name }}" "release/phantomgit-${{ matrix.asset_suffix }}"
+            chmod +x "release/phantomgit-${{ matrix.asset_suffix }}"
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: phantomgit-${{ matrix.asset_suffix }}
+          path: release/*
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    # Only run for tag pushes that look like v1.2.3
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Flatten artifact directory
+        run: |
+          mkdir -p release
+          find dist -type f -exec cp {} release/ \;
+          ls -la release/
+
+      - name: Generate checksums
+        run: |
+          cd release
+          sha256sum * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/*
+          generate_release_notes: true
+          body: |
+            ## Installation
+
+            Download the binary for your platform below, then:
+
+            **Linux / macOS**:
+            ```bash
+            chmod +x phantomgit-<platform>
+            ./phantomgit-<platform>
+            ```
+
+            **Windows**:
+            Double-click `phantomgit-windows-x86_64.exe`, or run from a terminal.
+
+            See `SHA256SUMS.txt` to verify download integrity.
+
+            ---
+
+            See [CHANGELOG.md](CHANGELOG.md) for full release notes.
