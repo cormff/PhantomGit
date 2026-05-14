@@ -976,7 +976,6 @@ def http_download(url: str, dest: Path,
                        does not match (catches truncated transfers that
                        terminate cleanly without an error).
     """
-    import socket
     import urllib.request
 
     req = urllib.request.Request(url, headers={"User-Agent": "phantomgit-updater"})
