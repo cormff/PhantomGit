@@ -315,7 +315,7 @@ def ask_for_ai_provider(existing: dict) -> dict:
         base_url = (
             input("Base URL [https://api.openai.com/v1]: ").strip() or "https://api.openai.com/v1"
         )
-        is_local = any(h in base_url for h in ("localhost", "127.0.0.1", "0.0.0.0"))  # noqa: S104
+        is_local = any(h in base_url for h in ("localhost", "127.0.0.1", "0.0.0.0")) # noqa: S104
         if is_local:
             api_key = input("API key (usually empty for local LLMs, press Enter to skip): ").strip()
         else:
@@ -379,17 +379,25 @@ def get_required_packages(ai_provider_type: str, mode: str = "hybrid") -> dict:
 def get_missing_packages(required: dict) -> list:
     import importlib.util
 
-    return [
-        pip_name
-        for import_name, pip_name in required.items()
-        if importlib.util.find_spec(import_name) is None
-    ]
+    missing = []
+    for import_name, pip_name in required.items():
+        try:
+            found = importlib.util.find_spec(import_name)
+        except ModuleNotFoundError:
+            # find_spec raises ModuleNotFoundError (not returns None) when a
+            # parent package in a dotted name doesn't exist yet.
+            # e.g. find_spec("google.genai") crashes if "google" isn't installed.
+            found = None
+        if found is None:
+            missing.append(pip_name)
+    return missing
 
 
 def _run_pip(extra_args: list, packages: list) -> tuple:
     cmd = (
-        [sys.executable, "-m", "pip", "install", "--disable-pip-version-check"] * extra_args,
-        *packages,
+        [sys.executable, "-m", "pip", "install", "--disable-pip-version-check"]
+        *extra_args,
+        *packages
     )
     print(f"   $ {' '.join(cmd[1:])}")
     result = subprocess.run(cmd, capture_output=True, text=True)
