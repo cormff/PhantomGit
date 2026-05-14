@@ -315,7 +315,7 @@ def ask_for_ai_provider(existing: dict) -> dict:
         base_url = (
             input("Base URL [https://api.openai.com/v1]: ").strip() or "https://api.openai.com/v1"
         )
-        is_local = any(h in base_url for h in ("localhost", "127.0.0.1", "0.0.0.0")) # noqa: S104
+        is_local = any(h in base_url for h in ("localhost", "127.0.0.1", "0.0.0.0"))  # noqa: S104
         if is_local:
             api_key = input("API key (usually empty for local LLMs, press Enter to skip): ").strip()
         else:
@@ -395,9 +395,8 @@ def get_missing_packages(required: dict) -> list:
 
 def _run_pip(extra_args: list, packages: list) -> tuple:
     cmd = (
-        [sys.executable, "-m", "pip", "install", "--disable-pip-version-check"]
-        *extra_args,
-        *packages
+        [sys.executable, "-m", "pip", "install", "--disable-pip-version-check"] * extra_args,
+        *packages,
     )
     print(f"   $ {' '.join(cmd[1:])}")
     result = subprocess.run(cmd, capture_output=True, text=True)
