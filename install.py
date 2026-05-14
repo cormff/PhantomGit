@@ -394,10 +394,15 @@ def get_missing_packages(required: dict) -> list:
 
 
 def _run_pip(extra_args: list, packages: list) -> tuple:
-    cmd = (
-        [sys.executable, "-m", "pip", "install", "--disable-pip-version-check"] * extra_args,
-        *packages,
-    )
+    cmd = [
+        sys.executable,
+        "-m",
+        "pip",
+        "install",
+        "--disable-pip-version-check",
+        *extra_args,  # ← liste içinde unpack
+        *packages,  # ← liste içinde unpack
+    ]
     print(f"   $ {' '.join(cmd[1:])}")
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode == 0:
