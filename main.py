@@ -221,8 +221,24 @@ def get_commit_message(
 # ============================================================
 #  Git helpers (cwd= for every call; never os.chdir)
 # ============================================================
+_TOKEN_PATTERNS = [
+    re.compile(r"(Authorization:\s*(?:token|Bearer)\s+)\S+", re.IGNORECASE),
+    re.compile(r"(https?://)[^@\s/]+(?::[^@\s/]+)?@"),
+]
+
+
+def _redact(text: str) -> str:
+    """Hide tokens that may appear inside auth headers or URL credentials."""
+    text = _TOKEN_PATTERNS[0].sub(r"\1***", text)
+    text = _TOKEN_PATTERNS[1].sub(r"\1***@", text)
+    return text
+
+
 def run_git(args: list, cwd: str, config: dict, check: bool = False) -> Optional[str]:
     timeout = int(config.get("timeouts", {}).get("git_seconds", 60))
+    env = os.environ.copy()
+    # Daemon has no TTY; never let git fall back to an interactive prompt.
+    env["GIT_TERMINAL_PROMPT"] = "0"
     try:
         result = subprocess.run(
             ["git", *args],
@@ -230,14 +246,17 @@ def run_git(args: list, cwd: str, config: dict, check: bool = False) -> Optional
             capture_output=True,
             text=True,
             timeout=timeout,
+            env=env,
         )
         if result.returncode != 0:
             if check:
-                log.error(f"Git error [{cwd}] ({' '.join(args)}): {result.stderr.strip()}")
+                pretty = _redact(" ".join(args))
+                stderr = _redact(result.stderr.strip())
+                log.error(f"Git error [{cwd}] ({pretty}): {stderr}")
             return None
         return result.stdout.strip()
     except subprocess.TimeoutExpired:
-        log.error(f"Git timeout [{cwd}]: {' '.join(args)}")
+        log.error(f"Git timeout [{cwd}]: {_redact(' '.join(args))}")
         return None
     except FileNotFoundError:
         log.error("git command not found. Make sure git is on PATH.")
@@ -248,8 +267,18 @@ def run_git(args: list, cwd: str, config: dict, check: bool = False) -> Optional
 
 
 def auth_header_arg(token: str) -> list:
-    """Return ['-c', 'http.extraHeader=...'] for a one-shot authenticated call."""
-    return ["-c", f"http.extraHeader=Authorization: token {token}"]
+    """Git args for a one-shot authenticated call.
+
+    Sends the token via an HTTP Authorization header and blocks any local
+    credential helper from intervening, so a 401 surfaces directly instead
+    of bouncing into a username/password prompt that the daemon can't answer.
+    """
+    return [
+        "-c",
+        "credential.helper=",
+        "-c",
+        f"http.extraHeader=Authorization: Bearer {token}",
+    ]
 
 
 # ============================================================
@@ -482,7 +511,7 @@ def create_snapshot(config: dict, project_path: str, repo_info: dict, ide_name: 
 
     branch_name = make_branch_name(config, project_slug(project_path))
     token = config["github"]["token"]
-    push_url = repo_info["clone_url"].replace("https://", f"https://{token}@")
+    push_url = repo_info["clone_url"]
 
     push_args = [
         *auth_header_arg(token),
