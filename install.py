@@ -27,18 +27,25 @@ import sys
 import tempfile
 from pathlib import Path
 
+
 def _get_version() -> str:
     try:
         import subprocess
-        tag = subprocess.check_output(
-            ["git", "describe", "--tags", "--abbrev=0"],
-            cwd=Path(__file__).parent,
-            stderr=subprocess.DEVNULL,
-            text=True,
-        ).strip().lstrip("v")
+
+        tag = (
+            subprocess.check_output(
+                ["git", "describe", "--tags", "--abbrev=0"],
+                cwd=Path(__file__).parent,
+                stderr=subprocess.DEVNULL,
+                text=True,
+            )
+            .strip()
+            .lstrip("v")
+        )
         return tag
     except Exception:
         return "0.1.0"
+
 
 __version__ = _get_version()
 
