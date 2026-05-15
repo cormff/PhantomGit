@@ -283,7 +283,7 @@ syntax errors.
 | `scanning.search_dirs` | (auto-detected) | Where to look for Git projects during scan. |
 | `timeouts.request_seconds` | `15` | HTTP timeout for GitHub and AI requests. |
 | `timeouts.git_seconds` | `60` | Timeout for individual git commands. |
-| `update.github_repo` | `YOUR_USERNAME/phantomgit` | Repository to fetch updates from. Change this if you maintain a fork. |
+| `update.github_repo` | `cormff/phantomgit` | Repository to fetch updates from. Change this if you maintain a fork. |
 | `update.include_prereleases` | `false` | When `true`, `update` considers RC / beta releases. |
 | `update.auto_check_enabled` | `true` | Reserved for a future background-check feature. |
 | `update.auto_check_interval_days` | `7` | Reserved for a future background-check feature. |

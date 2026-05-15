@@ -91,7 +91,7 @@
         "git_seconds": 60
     },
     "update": {
-        "github_repo": "YOUR_USERNAME/phantomgit",
+        "github_repo": "cormff/phantomgit",
         "include_prereleases": false,
         "auto_check_enabled": true,
         "auto_check_interval_days": 7,

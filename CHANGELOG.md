@@ -128,5 +128,5 @@ Initial public release.
 
 ---
 
-[Unreleased]: https://github.com/YOUR_USERNAME/phantomgit/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/YOUR_USERNAME/phantomgit/releases/tag/v0.1.0
+[Unreleased]: https://github.com/cormff/phantomgit/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/cormff/phantomgit/releases/tag/v0.1.0

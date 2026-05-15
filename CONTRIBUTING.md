@@ -8,7 +8,7 @@ you need to know to get your changes merged.
 ## Quick Start
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/phantomgit.git
+git clone https://github.com/cormff/phantomgit.git
 cd phantomgit
 python -m venv .venv
 source .venv/bin/activate          # Linux/macOS
