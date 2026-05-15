@@ -23,9 +23,6 @@ jobs:
           - os: ubuntu-22.04
             artifact_name: phantomgit
             asset_suffix: linux-x86_64
-          - os: macos-13         # Intel macOS
-            artifact_name: phantomgit
-            asset_suffix: macos-x86_64
           - os: macos-14         # Apple Silicon
             artifact_name: phantomgit
             asset_suffix: macos-arm64
