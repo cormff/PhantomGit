@@ -28,7 +28,7 @@ import tempfile
 from pathlib import Path
 
 __version__ = "0.1.0"
-DEFAULT_UPDATE_REPO = "cormff/phantomgit"
+DEFAULT_UPDATE_REPO = "cormff/PhantomGit"
 
 # ============================================================
 #  Paths
@@ -1176,7 +1176,7 @@ def get_latest_release(config: dict) -> dict:
     include_pre = upd.get("include_prereleases", False)
     timeout = int(config.get("timeouts", {}).get("request_seconds", 15))
 
-    if repo == DEFAULT_UPDATE_REPO or "cormff" in repo:
+    if not repo or "YOUR_USERNAME" in repo:
         print(f"[ERROR] update.github_repo is not set (currently '{repo}').")
         print("   Set it with: install.py config set update.github_repo owner/repo")
         return None
