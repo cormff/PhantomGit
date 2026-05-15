@@ -45,15 +45,21 @@ LOG_FILE = CONFIG_DIR / "service.log"
 #  Logging
 # ============================================================
 LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+
+_log_handlers: list = [logging.FileHandler(LOG_FILE, encoding="utf-8")]
+# Only write to stdout when running interactively.
+# When systemd/launchd redirects stdout to the log file, adding a
+# StreamHandler would write every line twice.
+if sys.stdout.isatty():
+    _log_handlers.append(logging.StreamHandler(sys.stdout))
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
-    handlers=[
-        logging.FileHandler(LOG_FILE, encoding="utf-8"),
-        logging.StreamHandler(sys.stdout),
-    ],
+    handlers=_log_handlers,
 )
 log = logging.getLogger("phantomgit")
+log.propagate = False  # prevent double-logging if root logger has handlers too
 
 
 # ============================================================
@@ -219,7 +225,7 @@ def run_git(args: list, cwd: str, config: dict, check: bool = False) -> Optional
     timeout = int(config.get("timeouts", {}).get("git_seconds", 60))
     try:
         result = subprocess.run(
-            ["git"] * args,
+            ["git", *args],
             cwd=cwd,
             capture_output=True,
             text=True,
@@ -404,7 +410,7 @@ def cleanup_legacy_remote(project_path: str, config: dict) -> None:
 # ============================================================
 def project_slug(project_path: str) -> str:
     name = os.path.basename(project_path)
-    h = hashlib.sha256(project_path.encode()).hexdigest()[:6]
+    h = hashlib.md5(project_path.encode(), usedforsecurity=False).hexdigest()[:6]
     raw = f"{name}-{h}"
     # Sanitize for git ref naming
     return re.sub(r"[^A-Za-z0-9._-]", "-", raw)[:80]
@@ -532,7 +538,7 @@ def find_expired_branches(branches: list, config: dict) -> list:
         log.warning("branch_template doesn't end with {timestamp}; cleanup disabled.")
         return []
     prefix = template[: -len("{timestamp}")].replace("{project_slug}", "(?P<slug>[^/]+)")
-    # Compile a more forgiving pattern that just needs digits/separators at the end
+    # More forgiving pattern: match any digit/separator sequence at the end
     pattern = re.compile("^" + prefix + r"(?P<ts>[\d_\-]+)$")
 
     cutoff = datetime.now() - timedelta(days=retention_days)

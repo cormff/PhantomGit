@@ -400,8 +400,8 @@ def _run_pip(extra_args: list, packages: list) -> tuple:
         "pip",
         "install",
         "--disable-pip-version-check",
-        *extra_args,  # ← liste içinde unpack
-        *packages,  # ← liste içinde unpack
+        *extra_args,
+        *packages,
     ]
     print(f"   $ {' '.join(cmd[1:])}")
     result = subprocess.run(cmd, capture_output=True, text=True)
