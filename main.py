@@ -8,6 +8,7 @@ Snapshot branches follow the pattern `{project}-{hash}/{timestamp}` and are
 automatically pruned after a configurable retention period.
 """
 
+import base64
 import hashlib
 import json
 import logging
@@ -222,7 +223,7 @@ def get_commit_message(
 #  Git helpers (cwd= for every call; never os.chdir)
 # ============================================================
 _TOKEN_PATTERNS = [
-    re.compile(r"(Authorization:\s*(?:token|Bearer)\s+)\S+", re.IGNORECASE),
+    re.compile(r"(Authorization:\s*(?:token|Bearer|Basic)\s+)\S+", re.IGNORECASE),
     re.compile(r"(https?://)[^@\s/]+(?::[^@\s/]+)?@"),
 ]
 
@@ -266,18 +267,53 @@ def run_git(args: list, cwd: str, config: dict, check: bool = False) -> Optional
         return None
 
 
-def auth_header_arg(token: str) -> list:
-    """Git args for a one-shot authenticated call.
+def _get_github_token(config: dict) -> str:
+    """Return the GitHub token from config with stray whitespace stripped.
 
-    Sends the token via an HTTP Authorization header and blocks any local
-    credential helper from intervening, so a 401 surfaces directly instead
-    of bouncing into a username/password prompt that the daemon can't answer.
+    The installer's `getpass` call already strips user input, but config
+    files can also be edited by hand or shipped via deployment scripts,
+    so we re-strip every time we read the token. A token that comes back
+    with a trailing newline or stray quotes is the single most common
+    cause of GitHub returning 401 even when the token "looks correct".
     """
+    raw = config.get("github", {}).get("token", "")
+    if not isinstance(raw, str):
+        return ""
+    cleaned = raw.strip().strip("'\"").strip()
+    if cleaned != raw:
+        log.warning(
+            "github.token had surrounding whitespace or quotes; stripped before use. "
+            "Edit your config to remove them and silence this warning."
+        )
+    return cleaned
+
+
+def auth_header_arg(token: str) -> list[str]:
+    """Git args for a one-shot authenticated call to GitHub over HTTPS.
+
+    GitHub's git HTTPS endpoint expects HTTP Basic auth where the
+    username is the literal string ``x-access-token`` and the password
+    is the personal-access token. This is the same scheme
+    ``actions/checkout`` and GitHub's own tooling use, and it works
+    uniformly for both classic (``ghp_*``) and fine-grained
+    (``github_pat_*``) tokens.
+
+    The ``Bearer`` scheme that works against ``api.github.com`` is NOT
+    reliable for the git transport itself: depending on the git/curl
+    version and the token type the server replies 401. Using Basic
+    auth here keeps the REST and git paths consistent in behaviour
+    even though they use different header values.
+
+    We also blank ``credential.helper`` so that on a 401 git fails
+    fast instead of bouncing into a system credential helper that the
+    background daemon has no way to answer.
+    """
+    basic = base64.b64encode(f"x-access-token:{token}".encode()).decode("ascii")
     return [
         "-c",
         "credential.helper=",
         "-c",
-        f"http.extraHeader=Authorization: Bearer {token}",
+        f"http.extraHeader=Authorization: Basic {basic}",
     ]
 
 
@@ -310,7 +346,7 @@ def get_active_ide(supported_ides: list) -> Optional[str]:
 # ============================================================
 def github_request(method: str, path: str, config: dict, **kwargs) -> requests.Response:
     gh = config.get("github", {})
-    token = gh["token"]
+    token = _get_github_token(config)
     api_url = gh.get("api_url", "https://api.github.com").rstrip("/")
     timeout = int(config.get("timeouts", {}).get("request_seconds", 15))
 
@@ -510,7 +546,7 @@ def create_snapshot(config: dict, project_path: str, repo_info: dict, ide_name: 
         return False
 
     branch_name = make_branch_name(config, project_slug(project_path))
-    token = config["github"]["token"]
+    token = _get_github_token(config)
     push_url = repo_info["clone_url"]
 
     push_args = [
@@ -534,7 +570,7 @@ def create_snapshot(config: dict, project_path: str, repo_info: dict, ide_name: 
 # ============================================================
 def list_remote_branches(config: dict, repo_info: dict) -> list:
     """Return list of branch names in the shadow repo via git ls-remote."""
-    token = config["github"]["token"]
+    token = _get_github_token(config)
     push_url = repo_info["clone_url"]
     args = [*auth_header_arg(token), "ls-remote", "--heads", push_url]
     # Run from temp dir so we don't depend on any user repo
@@ -589,7 +625,7 @@ def delete_remote_branches(config: dict, repo_info: dict, branches: list) -> int
     """Bulk delete branches via `git push` from a temp dir. Returns count deleted."""
     if not branches:
         return 0
-    token = config["github"]["token"]
+    token = _get_github_token(config)
     push_url = repo_info["clone_url"]
     deleted = 0
     chunk_size = 50
