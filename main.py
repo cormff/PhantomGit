@@ -482,7 +482,7 @@ def create_snapshot(config: dict, project_path: str, repo_info: dict, ide_name: 
 
     branch_name = make_branch_name(config, project_slug(project_path))
     token = config["github"]["token"]
-    push_url = repo_info["clone_url"]
+    push_url = repo_info["clone_url"].replace("https://", f"https://{token}@")
 
     push_args = [
         *auth_header_arg(token),
