@@ -39,7 +39,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"Main.py" = [
+"main.py" = [
     "S113",  # we set timeouts via the config object
 ]
 

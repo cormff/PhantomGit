@@ -82,25 +82,38 @@ your data:
 
 ## Installation
 
-### 1. Clone the repository
+> **Important:** Install from a **permanent location**, not from `/tmp` or
+> any other directory that gets cleared on reboot. The installer records
+> absolute paths in the OS service definition; if those paths disappear,
+> the service will fail to start. Good locations are `~/phantomgit`,
+> `~/code/phantomgit`, or anywhere else under your home directory.
+
+### Option A: Pre-built binary (recommended for end users)
+
+1. Download the binary for your platform from the
+   [Releases page](https://github.com/cormff/phantomgit/releases/latest).
+2. Verify the checksum against `SHA256SUMS.txt` in the same release.
+3. Run it:
+
+   ```bash
+   chmod +x phantomgit-linux-x86_64
+   ./phantomgit-linux-x86_64
+   ```
+
+### Option B: From source
 
 ```bash
-git clone https://github.com/<your-username>/phantomgit.git
-cd phantomgit
-```
+# 1. Clone to a permanent location (NOT /tmp)
+git clone https://github.com/cormff/phantomgit.git ~/phantomgit
+cd ~/phantomgit
 
-### 2. (Optional) Create a virtual environment
-
-```bash
+# 2. (Optional but recommended) create a virtual environment
 python -m venv .venv
 source .venv/bin/activate   # Linux / macOS
 # OR
 .venv\Scripts\activate      # Windows
-```
 
-### 3. Run the installer
-
-```bash
+# 3. Run the installer
 python install.py
 ```
 
@@ -108,18 +121,25 @@ The installer will:
 
 1. Ask for your GitHub Personal Access Token.
 2. Walk you through choosing an AI provider (or skipping AI).
-3. Install any missing Python packages automatically.
-4. Scan your home directory for Git projects.
-5. Register a background service appropriate for your OS.
+3. Ask you to pick a change-detection mode (hybrid / watch / polling).
+4. Install any missing Python packages automatically.
+5. Scan your home directory for Git projects.
+6. Register a background service appropriate for your OS.
 
 That's it. The service is now running and will create the shadow GitHub
 repo on the first detected change.
+
+> **Note on virtual environments:** if you used a venv during install,
+> the service is bound to that venv's Python interpreter. Don't delete
+> or move the venv afterwards, or the service will fail to start.
 
 ---
 
 ## CLI Commands
 
-`install.py` is both an installer and a management tool.
+`install.py` is both an installer and a management tool. When running the
+binary, the executable name (`phantomgit`) replaces `python install.py`
+in all commands below.
 
 ```bash
 # Default (install/setup)
@@ -248,7 +268,7 @@ In `watch` and `hybrid` modes:
 To switch modes after install:
 
 ```bash
-phantomgit reconfigure-mode
+python install.py reconfigure-mode
 ```
 
 ---
@@ -287,6 +307,7 @@ syntax errors.
 | `update.include_prereleases` | `false` | When `true`, `update` considers RC / beta releases. |
 | `update.auto_check_enabled` | `true` | Reserved for a future background-check feature. |
 | `update.auto_check_interval_days` | `7` | Reserved for a future background-check feature. |
+| `debug.watch_events` | `false` | When `true`, the service logs every filesystem event it queues and every debounce check, prefixed with `[DEBUG]`. Useful for diagnosing "snapshots aren't happening" issues in watch / hybrid mode. Off by default. |
 
 See `config.example.json` for a full annotated example.
 
@@ -430,6 +451,27 @@ Or use the status command:
 python install.py status --log-lines 50
 ```
 
+If the log file is empty but the service shows as "active", check whether
+the service is in a restart loop:
+
+```bash
+# Linux
+journalctl --user -u phantomgit.service -n 50
+# macOS
+log show --predicate 'subsystem == "com.user.phantomgit"' --last 10m
+```
+
+A common cause is that the installer was run from a temporary directory
+(like `/tmp`) or a virtual environment that no longer exists. Reinstall
+from a permanent location:
+
+```bash
+python install.py uninstall
+mv phantomgit ~/phantomgit   # or wherever
+cd ~/phantomgit
+python install.py
+```
+
 ### "git command not found"
 
 Ensure `git` is installed and on `PATH`. PhantomGit doesn't bundle git.
@@ -483,6 +525,62 @@ python install.py config set snapshot.debounce_seconds 60   # be more patient
   (`/proc/sys/fs/inotify/max_user_watches`). Large monorepos can hit
   this limit. Raise it with: `echo fs.inotify.max_user_watches=524288
   | sudo tee -a /etc/sysctl.conf && sudo sysctl -p`.
+- If none of the above helps, enable **watch-event debug logging** (see
+  below) to see exactly which events PhantomGit is receiving and how
+  the debounce timer is behaving.
+
+### Enabling watch-event debug logging
+
+When file changes seem to be ignored, you can ask the service to log
+every event it queues and every debounce tick. There are two ways to
+turn it on:
+
+**Persistent (config file):**
+
+```bash
+python install.py config set debug.watch_events true
+systemctl --user restart phantomgit.service     # Linux
+# Or restart the LaunchAgent / Task Scheduler task on macOS / Windows.
+```
+
+**One-shot (foreground run, no service restart):**
+
+```bash
+systemctl --user stop phantomgit.service
+PHANTOMGIT_DEBUG_WATCH=1 ~/phantomgit/.venv/bin/python ~/phantomgit/main.py
+# Reproduce the issue, then Ctrl+C and restart the service:
+systemctl --user start phantomgit.service
+```
+
+With debug logging on, you will see lines like:
+
+```
+[INFO] [DEBUG] dispatch queued event=modified path=.../foo.py qsize=3
+[INFO] [DEBUG] drain_pending waiting debounce=30s ages={'.../proj': 12.4}
+[INFO] [DEBUG] drain_pending ready=['/home/me/myproject']
+```
+
+What to look for:
+
+- **No `dispatch queued` lines at all** → the watcher isn't seeing the
+  events. Most likely the project is on a network mount or hit the
+  inotify watch limit.
+- **`dispatch queued` lines but no `drain_pending ready`** → events are
+  arriving but never settling because something keeps touching files in
+  the project. Increase `snapshot.debounce_seconds` or look at the
+  `path=` values in the queued lines to identify the noisy source.
+- **`dispatch queued` with `qsize` climbing to 10000** → the queue is
+  full. PhantomGit's default queue size is 10,000 events; if you have
+  an active project tree with constant noise (large `.venv`, indexer
+  output, etc.) you may need to add the noisy dirs to `exclude_dirs`.
+
+Don't forget to turn debug logging off when you're done — it produces a
+lot of output:
+
+```bash
+python install.py config set debug.watch_events false
+systemctl --user restart phantomgit.service
+```
 
 ### My local Ollama / LM Studio isn't being called
 
@@ -531,10 +629,14 @@ It will **not** delete:
 ```
 phantomgit/
 ├── install.py            # Installer + CLI management tool
-├── Main.py               # The background service entry point
+├── main.py               # The background service entry point
 ├── requirements.txt
 ├── config.example.json   # Annotated example of every config option
+├── phantomgit.spec       # PyInstaller build spec
 ├── README.md
+├── CHANGELOG.md
+├── SECURITY.md
+├── CONTRIBUTING.md
 ├── LICENSE
 └── .gitignore
 ```
@@ -550,9 +652,25 @@ After installation, runtime files live in:
 
 ---
 
+## Project Status
+
+PhantomGit is a young project. Core functionality (snapshotting,
+retention, AI commit messages, cross-platform service installation) is
+stable enough for daily use, but please:
+
+- **Back up anything irreplaceable independently.** PhantomGit is a
+  safety net, not your primary backup.
+- **Report bugs!** This project doesn't have an automated test suite yet
+  (see [CONTRIBUTING.md](CONTRIBUTING.md)), so real-world feedback is
+  how rough edges get found.
+
+---
+
 ## Contributing
 
-Bug reports, feature requests, and pull requests are welcome.
+Bug reports, feature requests, and pull requests are welcome. See
+[CONTRIBUTING.md](CONTRIBUTING.md) for development setup and the PR
+checklist.
 
 When reporting a bug, please include:
 
@@ -560,8 +678,11 @@ When reporting a bug, please include:
 - The output of `python install.py status`.
 - The last ~50 lines of `~/.config/phantomgit/service.log`.
 
+For security issues, please follow the private reporting process in
+[SECURITY.md](SECURITY.md) instead of opening a public issue.
+
 ---
 
 ## License
 
-See [LICENSE](LICENSE).
+See [LICENSE](LICENSE). PhantomGit is MIT-licensed.

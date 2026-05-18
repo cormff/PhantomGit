@@ -9,124 +9,100 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-
-- **Real-time change detection** via the `watchdog` library. Three modes
-  selectable at install or via `reconfigure-mode`:
-  - `hybrid` (default): event-driven snapshots + hourly safety-net poll.
-  - `watch`: pure event-driven.
-  - `polling`: original interval-based polling (no extra dependencies).
-  Events are debounced for 30 seconds by default (configurable via
-  `snapshot.debounce_seconds`) so bursts of saves collapse into a single
-  snapshot. The watcher automatically falls back to polling if
-  `watchdog` is unavailable or no projects can be watched.
-- New CLI subcommand: `reconfigure-mode` switches between detection
-  modes and installs the appropriate dependencies.
-- Configuration keys: `snapshot.mode`, `snapshot.debounce_seconds`,
-  `snapshot.watch_tick_seconds`, `snapshot.safety_poll_interval_seconds`.
-- PyInstaller binaries now ship with `watchdog` and all its OS-specific
-  observer backends (inotify on Linux, FSEvents on macOS,
-  ReadDirectoryChangesW on Windows) bundled, so watch mode works out of
-  the box for binary installations.
-
-### Changed
-
-- **Project renamed to PhantomGit** (previously "Auto-Committer").
-  Configuration directory moved from `~/.config/auto-committer/` to
-  `~/.config/phantomgit/`. Service identifiers, shadow repo default
-  (`phantomgit-shadow`), binary names, and PyInstaller spec
-  (`phantomgit.spec`) all reflect the new name. Source filenames
-  (`install.py`, `Main.py`) remain the same so existing scripts/links keep
-  working.
-
-### Added
-
-- `check-update` and `update` subcommands for automatic in-place updates.
-  Works for both Python-source installations (`git pull` + dependency
-  refresh) and PyInstaller binaries (downloads platform-specific asset
-  from GitHub Releases and verifies SHA256 before atomic replace).
-- `--version` flag and `__version__` constant; status output now shows
-  the running version and whether it's a source or binary install.
-- `update.*` configuration section: `github_repo`, `include_prereleases`,
-  `auto_check_enabled`, `auto_check_interval_days`, `asset_pattern`.
-- Build workflow now injects the release tag's version into the binary
-  on tag pushes, so released binaries report their actual version.
-
-### Security
-
-- The binary updater **requires** a matching SHA256 entry in the release's
-  `SHA256SUMS.txt`. Updates are aborted on mismatch or missing manifest.
-- The previous binary is preserved as a `.bak` sibling, enabling manual
-  rollback after a failed update.
+(Nothing yet.)
 
 ---
 
-## [0.1.0] - Unreleased
+## [1.0.0] - 2026-05-19
 
-Initial public release.
+First public release.
 
-### Added
+### Features
 
-- Cross-platform background service for snapshotting Git projects to GitHub.
-  Supports Linux (systemd user service), macOS (LaunchAgent), and Windows
-  (Task Scheduler with Startup-folder fallback).
-- IDE-aware operation: snapshot cycles only run while a configured editor
-  is active. Configurable list including JetBrains IDEs, VS Code family,
-  Cursor, Windsurf, Zed, Vim/Neovim, Emacs, Godot, Unity, Unreal, Xcode,
-  and others.
-- Pluggable AI commit-message providers:
+- **Cross-platform background service** that snapshots Git projects to a
+  single private GitHub repository on each detected change. Supports
+  Linux (systemd user service), macOS (LaunchAgent), and Windows (Task
+  Scheduler, with a Startup-folder fallback).
+- **Real-time change detection** via `watchdog`. Three modes,
+  configurable via `snapshot.mode`:
+  - `hybrid` (default): event-driven snapshots with an hourly safety-net
+    poll.
+  - `watch`: pure event-driven.
+  - `polling`: interval-based polling, no extra dependencies (useful for
+    network mounts where filesystem events don't fire).
+  Events are debounced (default 30 s) so bursts of saves collapse into a
+  single snapshot. The watcher automatically falls back to polling if
+  `watchdog` cannot be loaded.
+- **IDE-aware** operation: snapshot cycles only run while a configured
+  editor is active. Built-in list covers JetBrains IDEs, the VS Code
+  family (including Cursor and Windsurf), Zed, Sublime Text, Fleet,
+  Vim/Neovim, Emacs, Xcode, Eclipse, Godot, Unity, Unreal, and Android
+  Studio.
+- **Pluggable AI commit-message providers**:
   - `none` — timestamp + file count fallback (no external calls).
   - `gemini` — Google Gemini API.
   - `openai` — OpenAI-compatible endpoints (OpenAI, Ollama, LM Studio,
     llama.cpp server, vLLM).
   - `anthropic` — Anthropic Claude API.
-- Single shared "shadow" private repository for all projects, with
-  snapshots organized as branches under `{project_slug}/{timestamp}`.
-- Automatic cleanup of expired snapshot branches, configurable via
-  `retention_days` and `cleanup_interval_seconds`.
-- Orphan-commit snapshot strategy that keeps the shadow repo compact and
+- **Single shared shadow repository** for all projects, with snapshots
+  organized as branches under `{project_slug}/{timestamp}`.
+- **Orphan-commit snapshot strategy** keeps the shadow repo compact and
   never touches the user's working tree, staging area, or branches.
-- Comprehensive CLI on `install.py`:
-  - `install` (default) — interactive setup wizard.
-  - `uninstall` — removes the OS service and optionally the config dir.
-  - `config show / get / set` — inspect or modify any config key.
-  - `reconfigure-ai` — re-run the AI provider wizard.
-  - `reconfigure-token` — replace the stored GitHub token.
-  - `status` — show service state, config summary, recent log lines.
-  - `rescan` — re-scan disk for Git projects.
-- Sensitive-file detection: projects with uncommitted changes to files
-  matching `ignore_patterns` are automatically skipped.
-- PyInstaller spec for building single-file binaries on Linux, macOS
-  (Intel + Apple Silicon), and Windows.
-- GitHub Actions workflows:
-  - `build.yml`: cross-platform PyInstaller builds, auto-publishing to
-    GitHub Releases on version tags.
-  - `lint.yml`: ruff lint + format check + multi-version Python syntax check.
+- **Automatic retention**: snapshot branches older than `retention_days`
+  (default 7) are pruned in bulk every `cleanup_interval_seconds`
+  (default 6 hours).
+- **Sensitive-file guard**: projects with uncommitted changes to files
+  matching `ignore_patterns` (`.env`, `id_rsa`, `credentials.json`, etc.)
+  are automatically skipped.
+- **Comprehensive CLI** on `install.py`:
+  - `install` (default), `uninstall`, `status`, `rescan`.
+  - `config show / get / set` for inspecting or modifying any config key.
+  - `reconfigure-ai`, `reconfigure-mode`, `reconfigure-token` wizards.
+  - `check-update` and `update` for in-place updates from GitHub
+    Releases, with SHA256 verification and `.bak` rollback for binaries.
+- **Opt-in watch-event debug logging** for diagnosing "snapshots aren't
+  happening" issues. Enable via `debug.watch_events: true` in config or
+  the `PHANTOMGIT_DEBUG_WATCH=1` environment variable; the service then
+  logs every queued filesystem event and every debounce state transition.
+- **PyInstaller binaries** for Linux, macOS (Apple Silicon), and Windows,
+  with all OS-specific watchdog backends bundled.
+- **GitHub Actions workflows**:
+  - `build.yml` — cross-platform PyInstaller builds, auto-published to
+    GitHub Releases on version tags, with SHA256SUMS.txt.
+  - `lint.yml` — ruff lint + format check + multi-version Python syntax
+    check (3.9–3.12).
 
 ### Security
 
 - GitHub tokens are stored at `~/.config/phantomgit/config.json` with
   `0600` permissions on POSIX systems.
-- Tokens are never written to `.git/config`; they are passed to git via
-  one-shot `http.extraHeader` arguments.
-- Legacy versions of this tool wrote tokens into `.git/config`; the service
-  now detects and removes such legacy `shadow` remotes on the first run
-  in each project, with a warning suggesting the old token be revoked.
-- All HTTP calls have configurable timeouts (default 15 s) to prevent
-  service hangs.
+- Tokens are never written to `.git/config`. Each git push uses a
+  one-shot HTTP Basic auth header (matching `actions/checkout`'s
+  `x-access-token` scheme), which works reliably for both classic and
+  fine-grained Personal Access Tokens.
+- `credential.helper` is blanked for all authenticated git calls, so
+  authentication failures fail fast instead of hanging the daemon.
+- The binary updater requires a matching SHA256 entry in the release's
+  `SHA256SUMS.txt`; updates are aborted on mismatch or missing manifest.
+  The previous binary is preserved as a `.bak` sibling for manual
+  rollback.
+- All HTTP calls have configurable timeouts to prevent service hangs.
+- Token redaction is applied to logged git command lines for both
+  `Authorization:` headers and `https://user:token@host` URL forms.
 
 ### Documentation
 
 - `README.md` with full feature overview, security/privacy disclosure,
-  installation, configuration reference, troubleshooting.
+  installation instructions for both binary and source, configuration
+  reference, AI provider setup, troubleshooting.
 - `SECURITY.md` with vulnerability reporting policy via GitHub Private
   Vulnerability Reporting.
 - `CONTRIBUTING.md` with development setup, code style, architecture
   overview, and release process.
-- `config.example.json` with annotated examples of all configuration
-  options including example configs for every supported AI provider.
+- `config.example.json` with annotated examples for every supported AI
+  provider.
 
 ---
 
-[Unreleased]: https://github.com/cormff/phantomgit/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/cormff/phantomgit/releases/tag/v0.1.0
+[Unreleased]: https://github.com/cormff/phantomgit/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/cormff/phantomgit/releases/tag/v1.0.0

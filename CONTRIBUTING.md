@@ -77,9 +77,9 @@ Two files, one logical program:
 
 - **`install.py`** — CLI entry point. Handles setup, uninstall, config
   management, and status reporting. When invoked with `--service`, it
-  delegates to `Main.main()` (this is how the PyInstaller binary becomes
+  delegates to `main.main()` (this is how the PyInstaller binary becomes
   the service).
-- **`Main.py`** — The service main loop. Watches projects, generates
+- **`main.py`** — The service main loop. Watches projects, generates
   commit messages, pushes snapshots, runs cleanup.
 
 The PyInstaller build (`phantomgit.spec`) bundles both into a single
@@ -87,7 +87,7 @@ executable named `phantomgit`.
 
 ### Adding a new AI provider
 
-1. Add a `_yourprovider_provider(...)` function in `Main.py` that takes
+1. Add a `_yourprovider_provider(...)` function in `main.py` that takes
    the standard signature and returns a `str`.
 2. Add a branch in `get_commit_message(...)` that dispatches to it.
 3. Add a case in `ask_for_ai_provider(...)` in `install.py` to collect
@@ -103,10 +103,44 @@ executable named `phantomgit`.
 
 1. Add it to `build_default_config(...)` in `install.py` with a sensible
    default.
-2. Use it in `Main.py` via `config.get("section", {}).get("key", default)`
+2. Use it in `main.py` via `config.get("section", {}).get("key", default)`
    so old configs without that key still work.
 3. Document it in the README's "Configuration Reference" table.
 4. Add it to `config.example.json`.
+
+### Adding new debug logging
+
+PhantomGit's debug logging is **opt-in**, controlled by the
+`debug.watch_events` config key (or the `PHANTOMGIT_DEBUG_WATCH=1`
+environment variable). The pattern is:
+
+```python
+# In main.py:
+_debug_log(f"my new diagnostic: foo={foo} bar={bar}")
+```
+
+`_debug_log` is a no-op unless debug logging is enabled, so leaving
+these calls in production code is fine — they cost virtually nothing
+when disabled.
+
+Use debug logging for:
+
+- Internal state machine transitions (event queues, debounce timers).
+- Decisions that filter or reject input (which files were ignored, why).
+- Anything a user might need to see to diagnose "this should be working
+  but isn't" reports.
+
+Don't use debug logging for:
+
+- Errors that the user should always see — those go through `log.error`
+  or `log.warning` regardless.
+- Routine operational events (snapshot pushed, cleanup ran, etc.) — those
+  belong at INFO level.
+- Secrets or tokens, ever.
+
+When adding a new debug category, document the expected log lines in
+the README's "Enabling watch-event debug logging" section (or a new
+section if you're introducing a different category).
 
 ---
 
@@ -137,6 +171,15 @@ making changes, **manual testing across at least one OS** is required:
       get deleted on the next cleanup cycle
 - [ ] Verify the cleanup doesn't touch non-snapshot branches (`main`,
       etc.)
+
+### If you touched the watcher / debounce code
+
+- [ ] Enable `debug.watch_events` and verify your changes produce
+      the expected log lines.
+- [ ] Test in both `watch` and `hybrid` modes.
+- [ ] Verify behaviour with a noisy directory (e.g. an active `.venv`
+      that an IDE is indexing) — the watcher should ignore those and
+      still pick up edits in real source files.
 
 ---
 

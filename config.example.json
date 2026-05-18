@@ -96,5 +96,9 @@
         "auto_check_enabled": true,
         "auto_check_interval_days": 7,
         "asset_pattern": "phantomgit-{platform}{ext}"
+    },
+    "debug": {
+        "watch_events": false,
+        "_comment": "Set watch_events to true to log every filesystem event the watcher queues plus debounce state, prefixed with [DEBUG]. Useful for diagnosing watch/hybrid mode issues; produces a lot of output, so leave off in normal use."
     }
 }

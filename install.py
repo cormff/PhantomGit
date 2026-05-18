@@ -44,7 +44,7 @@ def _get_version() -> str:
         )
         return tag
     except Exception:
-        return "0.1.0"
+        return "1.0.0"
 
 
 __version__ = _get_version()
@@ -207,6 +207,9 @@ def build_default_config(github_token: str, ai_provider: dict) -> dict:
             "auto_check_interval_days": 7,
             "asset_pattern": "phantomgit-{platform}{ext}",
             "download_timeout_seconds": 600,
+        },
+        "debug": {
+            "watch_events": False,
         },
     }
 
@@ -1593,6 +1596,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="version",
         version=f"phantomgit {__version__}",
     )
+    parser.add_argument(
+        "--debug-watch",
+        action="store_true",
+        help="Run with verbose watch-event logging (one-shot; service mode only).",
+    )
     sub = parser.add_subparsers(dest="command", metavar="COMMAND")
 
     sub.add_parser("install", help="Interactive setup (also the default).")
@@ -1673,9 +1681,12 @@ CONFIG_COMMANDS = {
 def main() -> None:
     # Special mode: when running as the background service (typically when
     # invoked by systemd / launchd / Task Scheduler with --service), delegate
-    # to main.py's main loop. This is the entry point for PyInstaller
-    # binaries; in source mode the service uses main.py directly.
+    # to main.py's main loop.
     if "--service" in sys.argv[1:]:
+        # Propagate --debug-watch via env var so main.py can read it without
+        # reparsing argv.
+        if "--debug-watch" in sys.argv[1:]:
+            os.environ["PHANTOMGIT_DEBUG_WATCH"] = "1"
         try:
             import main
         except ImportError as e:

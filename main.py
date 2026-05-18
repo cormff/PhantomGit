@@ -22,6 +22,16 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
+# Debug flags (set in main() based on config + CLI args)
+_debug_watch_events: bool = False
+
+
+def _debug_log(msg: str) -> None:
+    """Log a debug message if watch-event debugging is enabled."""
+    if _debug_watch_events:
+        log.info(f"[DEBUG] {msg}")
+
+
 try:
     import requests
 except ImportError:
@@ -61,6 +71,10 @@ logging.basicConfig(
 )
 log = logging.getLogger("phantomgit")
 log.propagate = False  # prevent double-logging if root logger has handlers too
+
+for h in _log_handlers:
+    log.addHandler(h)
+log.setLevel(logging.INFO)
 
 
 # ============================================================
@@ -804,12 +818,20 @@ class _ProjectEventHandler:
         # Watchdog calls this for every event. We forward only relevant ones.
         if getattr(event, "is_directory", False):
             return
-        if not self._is_relevant(getattr(event, "src_path", "")):
+        src_path = getattr(event, "src_path", "")
+        if not self._is_relevant(src_path):
             return
         try:
             self.event_queue.put_nowait((self.project_path, time.time()))
-        except Exception:
-            pass
+            _debug_log(
+                f"dispatch queued event={event.event_type} "
+                f"path={src_path} qsize={self.event_queue.qsize()}"
+            )
+        except Exception as e:
+            _debug_log(
+                f"dispatch FAILED event={event.event_type} "
+                f"path={src_path} qsize={self.event_queue.qsize()} err={e!r}"
+            )
 
 
 def _build_event_handler_class(base_handler_cls):
@@ -944,7 +966,15 @@ class FileWatcher:
                 ready.append(project_path)
                 # Reset so we don't fire again until a new event arrives.
                 del self._last_event_time[project_path]
-        return ready
+                # Debug visibility into the debounce state machine
+        if ready:
+            _debug_log(f"drain_pending ready={ready}")
+        elif self._last_event_time:
+            now_dbg = time.time()
+            ages = {p: round(now_dbg - t, 1) for p, t in self._last_event_time.items()}
+            _debug_log(f"drain_pending waiting debounce={debounce}s ages={ages}")
+
+            return ready
 
     def update_projects(self, projects: list, excluded: list) -> None:
         """Restart the observer if the watched project set has changed."""
@@ -1107,8 +1137,19 @@ def _run_watch_loop(config: dict, hybrid: bool) -> None:
 
 
 def main() -> None:
+    global _debug_watch_events
+
     log.info("PhantomGit service started.")
     config = load_config()
+
+    # Enable debug logging if either config or env var requests it.
+    # CLI flag is handled in install.py's --service path by setting the env var.
+    debug_cfg = config.get("debug", {}).get("watch_events", False)
+    debug_env = os.environ.get("PHANTOMGIT_DEBUG_WATCH", "").lower() in ("1", "true", "yes")
+    _debug_watch_events = bool(debug_cfg or debug_env)
+    if _debug_watch_events:
+        log.info("[DEBUG] Watch-event debugging is ENABLED.")
+
     mode = config.get("snapshot", {}).get("mode", "hybrid").lower()
 
     if mode == "polling":
