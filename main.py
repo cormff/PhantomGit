@@ -814,8 +814,14 @@ class _ProjectEventHandler:
             return False
         return True
 
-    def dispatch(self, event):
-        # Watchdog calls this for every event. We forward only relevant ones.
+    def on_any_event(self, event):
+        # Watchdog calls this for every file-system event the observer
+        # produces. We forward only the relevant ones to the queue.
+        #
+        # Note: do NOT override `dispatch` here. The base class's `dispatch`
+        # is responsible for routing each event to the right `on_*` handler
+        # (and it calls `on_any_event` as part of that routing). Overriding
+        # `dispatch` would silently bypass that routing.
         if getattr(event, "is_directory", False):
             return
         src_path = getattr(event, "src_path", "")
@@ -824,12 +830,12 @@ class _ProjectEventHandler:
         try:
             self.event_queue.put_nowait((self.project_path, time.time()))
             _debug_log(
-                f"dispatch queued event={event.event_type} "
+                f"on_any_event queued event={event.event_type} "
                 f"path={src_path} qsize={self.event_queue.qsize()}"
             )
         except Exception as e:
             _debug_log(
-                f"dispatch FAILED event={event.event_type} "
+                f"on_any_event FAILED event={event.event_type} "
                 f"path={src_path} qsize={self.event_queue.qsize()} err={e!r}"
             )
 
@@ -974,7 +980,7 @@ class FileWatcher:
             ages = {p: round(now_dbg - t, 1) for p, t in self._last_event_time.items()}
             _debug_log(f"drain_pending waiting debounce={debounce}s ages={ages}")
 
-            return ready
+        return ready
 
     def update_projects(self, projects: list, excluded: list) -> None:
         """Restart the observer if the watched project set has changed."""
