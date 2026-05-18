@@ -97,6 +97,7 @@ htmlcov/
 *.cover
 *.py,cover
 .hypothesis/
+testfln.py
 
 # ============================================================
 #  Misc
