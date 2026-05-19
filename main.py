@@ -841,9 +841,15 @@ class _ProjectEventHandler:
 
 
 def _build_event_handler_class(base_handler_cls):
-    """Compose our handler with watchdog's base class at runtime."""
+    """Compose our handler with watchdog's base class at runtime.
 
-    class _Handler(base_handler_cls, _ProjectEventHandler):
+    `_ProjectEventHandler` MUST come first in the MRO. Watchdog's
+    `FileSystemEventHandler.on_any_event` is a no-op stub; if the base
+    class is listed first, method resolution finds that stub and our
+    queueing logic never runs.
+    """
+
+    class _Handler(_ProjectEventHandler, base_handler_cls):
         def __init__(self, *args, **kwargs):
             _ProjectEventHandler.__init__(self, *args, **kwargs)
             base_handler_cls.__init__(self)
@@ -972,7 +978,7 @@ class FileWatcher:
                 ready.append(project_path)
                 # Reset so we don't fire again until a new event arrives.
                 del self._last_event_time[project_path]
-                # Debug visibility into the debounce state machine
+
         if ready:
             _debug_log(f"drain_pending ready={ready}")
         elif self._last_event_time:
